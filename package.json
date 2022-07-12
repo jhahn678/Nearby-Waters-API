@@ -1,0 +1,17 @@
+{
+  "name": "nearby-waters-api",
+  "version": "1.0.0",
+  "description": "GeoJSON api that queries named bodies of water near a given pair of coordinates",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest",
+    "dev": "nodemon index.js",
+    "start": "node index.js"
+  },
+  "author": "Julian",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.1",
+    "mongoose": "^6.4.4"
+  }
+}
