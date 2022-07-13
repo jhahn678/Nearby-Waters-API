@@ -1,2 +1,5 @@
 .env
 node_modules/
+creek-merged.json
+filtered-geojson.json
+test-merge.js
