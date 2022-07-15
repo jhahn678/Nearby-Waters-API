@@ -1,40 +1,41 @@
 const catchAsync = require('../utils/catchAsync')
 const QueryError = require('../utils/errors/QueryError')
-const GeoJson = require('../models/geojson')
+const Geometry = require('../models/geometry')
+const { milesToMeters } = require('../utils/conversions')
 
 
 const queryByCoordinates = catchAsync( async (req, res) => {
 
-    const { lat, lon } = req.query;
+    const { lat, lon, maxdis=10, mindis=0 } = req.query;
 
     if(!lat || !lon){
         throw new QueryError(400, 'Query string must include both a lat and lon value')
     }
 
-    console.log(lat, lon)
 
-    const response = await GeoJson.find({ geometry: {
-        $near: {
-            $geometry: {
-                type: "Point" ,
-                coordinates: [lon, lat]
-             },
-             $maxDistance: 25000,
-             $minDistance: 0
-        }
+    const response = await Geometry.find({ 
+        geometry: {
+            $near: {
+                $geometry: {
+                    type: "Point" ,
+                    coordinates: [lon, lat]
+                },
+                $maxDistance: milesToMeters(maxdis),
+                $minDistance: milesToMeters(mindis)
+            }
     }})
 
-    if(response){
-        const array = response.map(r => r.name)
-        const set = new Set(array)
-        const setArray = Array.from(set)
-        res.status(200).json(setArray)
-    }else{
-        res.status(204).json({ results: [] })
-    }
+    if(!response) return res.status(200).json({ results: [], message: 'No results found' })
 
-
-    res.status(200).json({ message: 'coordinates received'})
+    const allNames = response.map(r => r.name)
+    const uniqueNames = new Set(allNames)
+    const uniqueNamesArray = Array.from(uniqueNames)
+    const final = uniqueNamesArray.map(item => {
+        const found = response.find(i => i.name === item)
+        return { name: found.name, classification: found.classification }
+    })
+    
+    return res.status(200).json(final)
 
 })
 
