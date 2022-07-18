@@ -4,6 +4,7 @@ const geometrySchema = new mongoose.Schema({
     osm_id: Number,
     name: String,
     classification: String,
+    states: [String],
     geometry: {
         type: {
             type: String,
