@@ -1,8 +1,7 @@
-const express = require('express')
-const controller = require('../controllers')
-const router = express.Router()
+const near = require('./near')
+const geoJson = require('./geojson')
 
-router.get('/', controller.queryByCoordinates)
-
-
-module.exports = router;
+module.exports = {
+    near,
+    geoJson
+}
