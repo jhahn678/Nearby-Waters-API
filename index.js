@@ -13,6 +13,7 @@ app.use(express.json())
 app.use('/geojson', routes.geoJson)
 app.use('/near', routes.near)
 app.use('/search', routes.search)
+app.use('/autocomplete', routes.autocomplete)
 
 app.get('/', (req, res) => {
     res.status(200).json('This is the Nearby Waters API')

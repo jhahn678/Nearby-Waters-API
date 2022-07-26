@@ -2,8 +2,10 @@ const catchAsync = require('../utils/catchAsync')
 const QueryError = require('../utils/errors/QueryError')
 const Geometry = require('../models/geometry')
 const Waterbody = require('../models/waterbody')
+const Geoplace = require('../models/geoplace')
 const { milesToMeters } = require('../utils/conversions')
 const { toGeoJsonFeature, toGeoJsonFeatureCollection, toGeoJsonFeatureCollectionFromSearch} = require('../utils/toGeoJson')
+const { validateState } = require('../utils/places-enums')
 
 //search        -- optional     Optional search string to narrow results by name
 //lat           -- required     Latitude EPSG 4236
@@ -161,8 +163,6 @@ const queryBySearchTerm = catchAsync( async (req, res) => {
 
     const { value } = req.query;
 
-    console.log(value)
-
     if(!value) throw new QueryError(400, 'Search term is missing from request')
     if(value.length < 5) throw new QueryError(400, 'Search term must be at least 5 characters long')
 
@@ -182,8 +182,42 @@ const queryBySearchTerm = catchAsync( async (req, res) => {
 })
 
 
+const autocompletePlaces = catchAsync(async (req ,res) => {
+
+    const { value } = req.query;
+
+    if(!value) throw new QueryError(400, 'Invalid Request -- Query value is required')
+
+    const filters = []
+
+    const parsed = value.split(',').map(x => x.trim())
+
+    if(parsed.length === 2){
+        filters.push({ $text: { $search: parsed[0] }})
+        const validState = validateState(parsed[1])
+        if(validState) filters.push({ abbr: validState })
+
+    }else if(parsed.length === 1){
+        filters.push({ $text: { $search: parsed[0] }})
+
+    }else{
+        throw new QueryError(400, 'Invalid request --- Query value must adhere to pattern: "Place", "State"') 
+    }
+
+    const results = await Geoplace
+        .find({ $and: filters }, { score: { $meta: "textScore" } })
+        .sort({ score: { $meta: "textScore" } } )
+        .limit(3)
+
+        
+    res.status(200).json(results)
+
+})
+
+
 module.exports = {
     queryByCoordinates,
     queryByCoordinatesGeoJson,
-    queryBySearchTerm
+    queryBySearchTerm,
+    autocompletePlaces
 }
