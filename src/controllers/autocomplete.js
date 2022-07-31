@@ -2,13 +2,14 @@ const catchAsync = require('../utils/catchAsync')
 const QueryError = require('../utils/errors/QueryError')
 const Geoplace = require('../models/geoplace')
 const Waterbody = require('../models/waterbody')
-const Geometry = require('../models/geometry')
 const { validateState } = require('../utils/stateValidation')
 const { findStateByPoint } = require('../utils/findStateByPoint')
 const { distanceWeightFunction } = require('../utils/searchWeights')
 const { validateCoords } = require('../utils/coordValidation')
-
 const models = { waterbodies: 'WATERBODIES', geoplaces: 'GEOPLACES' }
+
+
+
 
 const createFilters = (value, model) => {
 
@@ -39,6 +40,136 @@ const createFilters = (value, model) => {
 
 
 
+const createWaterbodiesPipeline = value => ([
+    { $match: { $and: createFilters(value, models.waterbodies) } },
+    { $addFields: { rank: '$weight' } },
+    { $project: {
+        _id: '$_id._id',
+        name: '$_id.name',
+        states: '$_id.states',
+        classification: '$_id.classification',
+        rank: '$rank'
+    }},
+    { $sort: { rank: -1 } },
+    { $limit : 5 }
+])
+
+
+
+const createWaterbodiesGeospatialPipeline = (
+    value, coords, maxDistance=300000
+) => ([{ 
+    $geoNear: { 
+        near: {
+            type: 'Point',
+            coordinates: coords
+        },
+        key: 'geometry_simplified',
+        distanceField: 'distanceFrom',
+        maxDistance: maxDistance,
+        query: { $and: createFilters(value, models.waterbodies) },
+        spherical: false
+    }},
+    { $group: {
+        _id: '$parent_waterbody',
+        distanceFrom: {
+            $min: '$distanceFrom'
+        }
+    }},
+    { $lookup: {
+        from: 'waterbodies',
+        localField: '_id',
+        foreignField: '_id',
+        as: '_id'
+    }}, 
+    { $unwind: {
+        path: '$_id'
+    }},
+    { $addFields: { 
+        rank: { 
+            $function: {
+                body: distanceWeightFunction(maxDistance),
+                args: [
+                    '$distanceFrom',
+                    '$_id.weight'
+                ],
+                lang: 'js'
+            }
+        }}
+    },
+    { $project: {
+        _id: '$_id._id',
+        name: '$_id.name',
+        states: '$_id.states',
+        classification: '$_id.classification',
+        distanceFrom: '$distanceFrom',
+        rank: '$rank'
+    }},
+    { $sort: { rank: -1 } },
+    { $limit : 5 }
+])
+
+
+
+const createGeoplacesPipeline = value => ([
+    { $match: { $and: createFilters(value, models.geoplaces) } },
+    { $addFields: { rank: '$weight' } },
+    { $project: {
+        _id: '$_id',
+        name: '$name',
+        state: '$state',
+        abbr: '$abbr',
+        geometry: '$geometry',
+        county: '$county',
+        distanceFrom: '$distanceFrom',
+        rank: '$rank'
+    }},
+    { $sort: { rank: -1 } },
+    { $limit : 5 }
+])
+
+
+
+const createGeoplacesGeospatialPipeline = (
+    value, coords, maxDistance=500000
+) => ([{ 
+        $geoNear: { 
+            near: {
+                type: 'Point',
+                coordinates: coords
+            },
+            distanceField: 'distanceFrom',
+            maxDistance: maxDistance,
+            query: { $and: createFilters(value, models.geoplaces) },
+            spherical: false
+        }
+        },{ $addFields: { 
+            rank: { 
+                $function: {
+                    body: distanceWeightFunction(maxDistance),
+                    args: [
+                        '$distanceFrom',
+                        '$weight'
+                    ],
+                    lang: 'js'
+                }
+            }}
+        },
+        { $project: {
+            _id: '$_id',
+            name: '$name',
+            state: '$state',
+            abbr: '$abbr',
+            geometry: '$geometry',
+            county: '$county',
+            distanceFrom: '$distanceFrom',
+            rank: '$rank'
+        }},
+        { $sort: { rank: -1 }},
+        { $limit: 5 }
+])
+
+
 const autocompletePlaces = catchAsync(async (req, res) => {
 
     const { value, lnglat } = req.query;
@@ -47,54 +178,22 @@ const autocompletePlaces = catchAsync(async (req, res) => {
 
     const pipeline = []
 
-    if(lnglat){
+    if(lnglat && value.length <= 8){
         const coords = lnglat.split(',').map(x => parseFloat(x))
         if(!validateCoords(coords[0], coords[1])){
             throw new QueryError(400, 'Invalid coordinates --- Coords must adhere to pattern: "Longitude,Latitude"')
         }
 
-        pipeline.push({ 
-            $geoNear: { 
-                near: {
-                    type: 'Point',
-                    coordinates: coords
-                },
-                distanceField: 'distanceFrom',
-                maxDistance: 500000,
-                query: { $and: createFilters(value, models.geoplaces) },
-                spherical: false
-            }
-            },{ $addFields: { 
-                rank: { 
-                    $function: {
-                        body: distanceWeightFunction(),
-                        args: [
-                            '$distanceFrom',
-                            '$weight'
-                        ],
-                        lang: 'js'
-                    }
-                }}
-            },
-            {  $sort: {  rank: -1 } }
-        )
-
+        pipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
     }
 
-    if(!lnglat){
-        pipeline.push(
-            { $addFields: { ranking: '$weight' } },
-            { $sort: { ranking: -1 } }
-        )
+    if(!lnglat || value.length > 8){
 
+        pipeline = [ ...createGeoplacesPipeline(value)]
     }
 
-    const results = await Geoplace.aggregate([
-        ...pipeline,
-        { $limit : 5 }
-    ])
-        
-        
+    const results = await Geoplace.aggregate(pipeline)
+    
     res.status(200).json(results)
 
 })
@@ -116,94 +215,27 @@ const autocompleteWaterbodies = catchAsync( async (req, res) => {
 
     const pipeline = []
 
-    if(lnglat){
+    if(lnglat && value.length <= 8){
+
         const coords = lnglat.split(',').map(x => parseFloat(x))
         if(!validateCoords(coords[0], coords[1])){
             throw new QueryError(400, 'Invalid coordinates --- Coords must adhere to pattern: "Longitude,Latitude"')
         }
 
-        pipeline.push(
-            { $geoNear: { 
-                near: {
-                    type: 'Point',
-                    coordinates: coords
-                },
-                key: 'geometry_simplified',
-                distanceField: 'distanceFrom',
-                maxDistance: 300000,
-                query: { $and: createFilters(value, models.waterbodies) },
-                spherical: false
-            }},
-            { $group: {
-                _id: '$parent_waterbody',
-                distanceFrom: {
-                    $min: '$distanceFrom'
-                }
-            }},
-            { $lookup: {
-                from: 'waterbodies',
-                localField: '_id',
-                foreignField: '_id',
-                as: '_id'
-            }}, 
-            { $unwind: {
-                path: '$_id'
-            }},
-            { $addFields: { 
-                rank: { 
-                    $function: {
-                        body: distanceWeightFunction(300000),
-                        args: [
-                            '$distanceFrom',
-                            '$_id.weight'
-                        ],
-                        lang: 'js'
-                    }
-                }}
-            },
-            { $project: {
-                 _id: '$_id._id',
-                 name: '$_id.name',
-                 states: '$_id.states',
-                 classification: '$_id.classification',
-                 distanceFrom: '$distanceFrom',
-                 rank: '$rank'
-            }}
-        )
-
-        const results = await Geometry.aggregate([
-            ...pipeline,
-            { $sort: { rank: -1 } },
-            { $limit : 5 }
-        ])
-            
-        res.status(200).json(results)
+        pipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
     }
 
 
 
-    if(!lnglat){
+    if(!lnglat || value.length > 8){
 
-        pipeline.push(
-            { $match: { $and: createFilters(value, models.waterbodies ) } },
-            { $project: {
-                _id: '$_id',
-                name: '$name',
-                classification: '$classification',
-                weight: '$weight',
-                rank: '$weight'
-            }}, 
-            { $sort: { rank: -1 } },
-            { $limit : 5 }
-        )
-
-        const results = await Waterbody.aggregate(pipeline)
-
-        res.status(200).json(results)
-
+        pipeline = [ ...createWaterbodiesPipeline(value) ]
     }
 
-    
+    const results = await Waterbody.aggregate(pipeline)
+
+    res.status(200).json(results)
+
 })
 
 
@@ -214,69 +246,55 @@ const autocompleteWaterbodies = catchAsync( async (req, res) => {
 
 const autocompleteAll = catchAsync( async (req, res) => {
 
-    const { value, coords, state: queryState } = req.query;
-
-    let state = null;
-
-    if(queryState) state = queryState;
-
-    if(coords){
-        const lnglat = coords.split(',')
-        state = findStateByPoint(lnglat).abbr
-    }
+    const { value, lnglat } = req.query;
 
     if(!value) throw new QueryError(400, 'Invalid Request -- Query value is required')
 
-    const filtersWaterbody = []
-    const filtersGeoplace = []
+    const waterbodiesPipeline = []
+    const geoplacesPipeline = []
 
-    const parsed = value.split(',').map(x => x.trim())
+    if(lnglat && value.length <= 8){
 
-    if(parsed.length === 2){
-        const validState = validateState(parsed[1])
-        if(validState){ 
-            filtersGeoplace.push({ abbr: validState })
-            filtersWaterbody.push({ states: validState })
+        const coords = lnglat.split(',').map(x => parseFloat(x))
+        if(!validateCoords(coords[0], coords[1])){
+            throw new QueryError(400, 'Invalid coordinates --- Coords must adhere to pattern: "Longitude,Latitude"')
         }
+
+        waterbodiesPipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
+        geoplacesPipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
+        
     }
 
-    if(parsed.length >= 1){
-        filtersGeoplace.push({ $text: { $search: parsed[0] }})
-        filtersWaterbody.push({ $text: { $search: parsed[0] }})
+    if(!lnglat || value.length > 8){
+
+        waterbodiesPipeline = [ ...createWaterbodiesPipeline(value) ]
+        geoplacesPipeline = [ ...createGeoplacesPipeline(value) ]
+
     }
 
-    const resultsWaterbody = await Waterbody
-        .find({ $and: filtersWaterbody }, { score: { $meta: 'textScore' }})
-        .sort({ score: { $meta: "textScore" }})
-        .lean()
-        .limit(10)
+    const resultsWaterbody = await Waterbody.aggregate(waterbodiesPipeline)
 
-    const resultsGeoplace = await Geoplace
-        .find({ $and: filtersGeoplace }, { score: { $meta: 'textScore' }})
-        .sort({ score: { $meta: "textScore" }})
-        .lean()
-        .limit(10)
+    const resultsGeoplace = await Geoplace.aggregate(geoplacesPipeline)
 
+    const results = [
+        ...resultsGeoplace,
+        ...resultsWaterbody
+    ].sort((x, y) => y.rank - x.rank)
+        
 
-    const resultsAll = [
-        ...resultsWaterbody, 
-        ...resultsGeoplace
-    ].sort((x, y) => y.score - x.score)
-
-
-    res.status(200).json(resultsAll)
+    res.status(200).json(results)
 })
 
 
 
 const getStateByCoords = catchAsync( async(req, res) => {
 
-    const { coords } = req.query;
+    const { lnglat } = req.query;
 
     if(!coords) throw new QueryError(400, 'Invalid Request -- Coords not provided')
 
-    const lnglat = coords.split(',')
-    const state = findStateByPoint(lnglat)
+    const coords = coords.split(',')
+    const state = findStateByPoint(coords)
 
     res.status(200).json(state)
 })
