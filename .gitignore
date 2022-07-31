@@ -1,7 +1,5 @@
 .env
 node_modules/
-creek-merged.json
-filtered-geojson.json
-test-merge.js
-utils/import-geodata.js
-routes/dev.js
+src/utils/import-geodata.js
+tsconfig.json
+nodemon.json
