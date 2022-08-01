@@ -72,26 +72,10 @@ const createWaterbodiesGeospatialPipeline = (
             type: 'Point',
             coordinates: coords
         },
-        key: 'geometry_simplified',
         distanceField: 'distanceFrom',
         maxDistance: maxDistance,
         query: { $and: createFilters(value, models.waterbodies) },
         spherical: false
-    }},
-    { $group: {
-        _id: '$parent_waterbody',
-        distanceFrom: {
-            $min: '$distanceFrom'
-        }
-    }},
-    { $lookup: {
-        from: 'waterbodies',
-        localField: '_id',
-        foreignField: '_id',
-        as: '_id'
-    }}, 
-    { $unwind: {
-        path: '$_id'
     }},
     { $addFields: { 
         rank: { 
@@ -99,23 +83,23 @@ const createWaterbodiesGeospatialPipeline = (
                 body: distanceWeightFunction(maxDistance),
                 args: [
                     '$distanceFrom',
-                    '$_id.weight'
+                    '$weight'
                 ],
                 lang: 'js'
             }
         }}
     },
+    { $sort: { rank: -1 } },
+    { $limit : 8 },
     { $project: {
-        _id: '$_id._id',
+        _id: '$_id',
         type: 'WATERBODY',
-        name: '$_id.name',
-        states: '$_id.states',
-        classification: '$_id.classification',
+        name: '$name',
+        states: '$states',
+        classification: '$classification',
         distanceFrom: '$distanceFrom',
         rank: '$rank'
-    }},
-    { $sort: { rank: -1 } },
-    { $limit : 5 }
+    }}
 ])
 
 
@@ -123,6 +107,8 @@ const createWaterbodiesGeospatialPipeline = (
 const createGeoplacesPipeline = value => ([
     { $match: { $and: createFilters(value, models.geoplaces) } },
     { $addFields: { rank: '$weight' } },
+    { $sort: { rank: -1 } },
+    { $limit : 8 },
     { $project: {
         _id: '$_id',
         type: 'GEOPLACE',
@@ -133,9 +119,7 @@ const createGeoplacesPipeline = value => ([
         geometry: '$geometry',
         county: '$county',
         rank: '$rank'
-    }},
-    { $sort: { rank: -1 } },
-    { $limit : 8 }
+    }}
 ])
 
 
