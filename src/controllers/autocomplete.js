@@ -2,7 +2,6 @@ const catchAsync = require('../utils/catchAsync')
 const QueryError = require('../utils/errors/QueryError')
 const Geoplace = require('../models/geoplace')
 const Waterbody = require('../models/waterbody')
-const Geometry = require('../models/geometry')
 const { validateState } = require('../utils/stateValidation')
 const { findStateByPoint } = require('../utils/findStateByPoint')
 const { distanceWeightFunction } = require('../utils/searchWeights')
@@ -186,11 +185,12 @@ const autocompletePlaces = catchAsync(async (req, res) => {
 
     if(lnglat && value.length <= 8){
         const coords = lnglat.split(',').map(x => parseFloat(x))
-        if(!validateCoords(coords[0], coords[1])){
-            throw new QueryError(400, 'Invalid coordinates --- Coords must adhere to pattern: "Longitude,Latitude"')
+        if(validateCoords(coords[0], coords[1])){
+            pipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
+        }else{
+            pipeline = [ ...createGeoplacesPipeline(value)]
         }
-
-        pipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
+        
     }
 
     if(!lnglat || value.length > 8){
@@ -215,13 +215,13 @@ const autocompleteWaterbodies = catchAsync( async (req, res) => {
     if(lnglat && value.length <= 8){
 
         const coords = lnglat.split(',').map(x => parseFloat(x))
-        if(!validateCoords(coords[0], coords[1])){
-            throw new QueryError(400, 'Invalid coordinates --- Coords must adhere to pattern: "Longitude,Latitude"')
+        if(validateCoords(coords[0], coords[1])){
+            pipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
+        }else{
+            pipeline = [ ...createWaterbodiesPipeline(value) ]
         }
 
-        pipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
-
-        const results = await Geometry.aggregate(pipeline)
+        const results = await Waterbody.aggregate(pipeline)
 
         res.status(200).json(results)
     }
@@ -251,15 +251,16 @@ const autocompleteAll = catchAsync( async (req, res) => {
     if(lnglat && value.length <= 8){
 
         const coords = lnglat.split(',').map(x => parseFloat(x))
-        if(!validateCoords(coords[0], coords[1])){
-            throw new QueryError(400, 'Invalid coordinates --- Coords must adhere to pattern: "Longitude,Latitude"')
+
+        if(validateCoords(coords[0], coords[1])){
+            waterbodiesPipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
+            geoplacesPipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
+        }else{
+            waterbodiesPipeline = [ ...createWaterbodiesPipeline(value) ]
+            geoplacesPipeline = [ ...createGeoplacesPipeline(value) ]
         }
 
-        waterbodiesPipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
-        geoplacesPipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
-
-        const resultsWaterbody = await Geometry.aggregate(waterbodiesPipeline)
-
+        const resultsWaterbody = await Waterbody.aggregate(waterbodiesPipeline)
         const resultsGeoplace = await Geoplace.aggregate(geoplacesPipeline)
 
         const results = [
@@ -277,7 +278,6 @@ const autocompleteAll = catchAsync( async (req, res) => {
         geoplacesPipeline = [ ...createGeoplacesPipeline(value) ]
 
         const resultsWaterbody = await Waterbody.aggregate(waterbodiesPipeline)
-
         const resultsGeoplace = await Geoplace.aggregate(geoplacesPipeline)
 
         const results = [
@@ -286,7 +286,6 @@ const autocompleteAll = catchAsync( async (req, res) => {
         ].sort((x, y) => y.rank - x.rank)
 
         res.status(200).json(results)
-
     }
 
 })
