@@ -3,6 +3,7 @@ const mongoose = require('mongoose')
 const geometrySchema = new mongoose.Schema({
     osm_id: Number,
     name: String,
+    name_lower: String,
     classification: String,
     states: [String],
     parent_waterbody: {
@@ -24,7 +25,8 @@ const geometrySchema = new mongoose.Schema({
             required: true
         },
         coordinates: []
-    }
+    },
+    counties: [String]
 })
 
 module.exports = mongoose.model("Geometry", geometrySchema)

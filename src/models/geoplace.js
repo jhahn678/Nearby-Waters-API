@@ -8,6 +8,8 @@ const geoplaceSchema = new mongoose.Schema({
     country: String,
     state: String,
     abbr: String,
+    county: String,
+    weight: Number,
     geometry: {
         type: {
             type: String,
