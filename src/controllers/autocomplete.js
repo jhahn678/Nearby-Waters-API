@@ -59,7 +59,7 @@ const createWaterbodiesPipeline = value => ([
         rank: '$rank'
     }},
     { $sort: { rank: -1 } },
-    { $limit : 5 }
+    { $limit : 8 }
 ])
 
 
@@ -126,6 +126,7 @@ const createGeoplacesPipeline = value => ([
     { $project: {
         _id: '$_id',
         type: 'GEOPLACE',
+        fcode: '$fcode',
         name: '$name',
         state: '$state',
         abbr: '$abbr',
@@ -134,7 +135,7 @@ const createGeoplacesPipeline = value => ([
         rank: '$rank'
     }},
     { $sort: { rank: -1 } },
-    { $limit : 5 }
+    { $limit : 8 }
 ])
 
 
@@ -170,6 +171,7 @@ const createGeoplacesGeospatialPipeline = (
             name: '$name',
             state: '$state',
             abbr: '$abbr',
+            fcode: '$fcode',
             geometry: '$geometry',
             county: '$county',
             distanceFrom: '$distanceFrom',
@@ -195,8 +197,6 @@ const createGeoplacesGeospatialPipeline = (
 const autocompletePlaces = catchAsync(async (req, res) => {
 
     const { value, lnglat } = req.query;
-
-    if(!value) throw new QueryError(400, 'Invalid Request -- Query value is required')
 
     const pipeline = []
 
@@ -225,8 +225,6 @@ const autocompletePlaces = catchAsync(async (req, res) => {
 const autocompleteWaterbodies = catchAsync( async (req, res) => {
 
     const { value, lnglat } = req.query;
-
-    if(!value) throw new QueryError(400, 'Invalid Request -- Query value is required')
 
     const pipeline = []
 
@@ -262,8 +260,6 @@ const autocompleteWaterbodies = catchAsync( async (req, res) => {
 const autocompleteAll = catchAsync( async (req, res) => {
 
     const { value, lnglat } = req.query;
-
-    if(!value) throw new QueryError(400, 'Invalid Request -- Query value is required')
 
     const waterbodiesPipeline = []
     const geoplacesPipeline = []
