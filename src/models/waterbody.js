@@ -13,7 +13,7 @@ const waterbodySchema = new mongoose.Schema({
     ],
     simplified_geometries: {
         type: {
-            type: string,
+            type: String,
             enum: ['GeometryCollection']
         },
         geometries: [{
