@@ -1,72 +1,47 @@
-// import { FeatureCollection } from "geojson";
+import { Feature, FeatureCollection, GeoJsonObject, Geometry } from "geojson";
+
+
+interface GeometryDocument {
+    _id: string,
+    name: string,
+    geometry: Geometry
+}
 
 
 
-// const toGeoJsonFeatureCollection = (value: []): FeatureCollection => {
+export const toGeoJsonFeatureCollection = (docs: GeometryDocument[]): FeatureCollection => {
 
-//     let geojson = {
-//         type: 'FeatureCollection',
-//         features: []
-//     }
+    const collection: FeatureCollection = {
+        type: 'FeatureCollection',
+        features: []
+    }
 
-//     for(let geom of value){
-//         geojson.features.push({
-//             type: 'Feature',
-//             properties: {
-//                 _id: geom._id,
-//                 name: geom.name,
-//                 classification: geom.classification
-//             },
-//             geometry: {
-//                 ...geom.geometry
-//             }
-//         })
-//     }
+    for(let doc of docs){
+        const { geometry, ...properties } = doc;
+        collection.features.push({
+            type: 'Feature',
+            properties: properties,
+            geometry: geometry
+        })
+    }
 
-//     return geojson;
+    return collection
     
-// }
+}
 
 
-// const toGeoJsonFeature = value => {
+export const toGeoJsonFeature = (doc: GeometryDocument): Feature => {
 
-//     geojson = {
-//         type: 'Feature',
-//         geometry: {
-//             ...value.geometry
-//         },
-//         properties: {
-//             _id: value._id,
-//             name: value.name,
-//             classification: value.classification
-//         }
-//     }
+    const { geometry, ...properties } = doc;
 
-//     return geojson;
+    const feature: Feature = {
+        type: 'Feature',
+        properties: properties,
+        geometry: geometry
+    }
 
-// }
+    return feature;
+
+}
 
 
-// const toGeoJsonFeatureCollectionFromSearch = results =>  {
-
-//     const featureCollection = {
-//         type: 'FeatureCollection',
-//         features: []
-//     }
-
-//     for(let result of results){
-//         for(geom of result.geometries){
-//             const feature = toGeoJsonFeature(geom)
-//             featureCollection.features.push(feature)
-//         }
-//     }
-
-//     return featureCollection;
-// }
-
-
-// module.exports = {
-//     toGeoJsonFeature,
-//     toGeoJsonFeatureCollection,
-//     toGeoJsonFeatureCollectionFromSearch
-// }

@@ -1,19 +1,19 @@
 const express = require('express')
-const cors = require('cors')
-const routes = require('./routes')
-const app = express()
+import { Application } from 'express'
+import MongoDB from './config/mongo'
+import cors from 'cors'
+import routes from './routes'
+
+const app: Application = express()
 const PORT = process.env.PORT || 3500
 
 require('dotenv').config()
-require('./config/mongo')()
+MongoDB()
 
 app.use(cors())
 app.use(express.json())
 
-app.use('/geojson', routes.geoJson)
-app.use('/near', routes.near)
-app.use('/search', routes.search)
-app.use('/autocomplete', routes.autocomplete)
+app.use('/', routes)
 
 app.get('/', (req, res) => {
     res.status(200).json('This is the Nearby Waters API')

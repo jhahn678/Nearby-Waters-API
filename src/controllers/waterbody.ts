@@ -15,6 +15,8 @@ export const getWaterbody = catchAsync(async (req: Request<{},{},{},WaterbodyQue
 
     const { _id, geometries } = req.query;
 
+    if(!_id) res.status(400).json({ error: 'No _id provided'})
+
     if(geometries){
         const result = await Waterbody.findById(_id).populate('geometries').lean()
         res.status(200).json(result)
