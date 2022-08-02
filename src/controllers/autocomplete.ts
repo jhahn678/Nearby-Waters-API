@@ -1,12 +1,16 @@
-const catchAsync = require('../utils/catchAsync')
-const QueryError = require('../utils/errors/QueryError')
-const Geoplace = require('../models/geoplace')
-const Waterbody = require('../models/waterbody')
-const { validateState } = require('../utils/stateValidation')
-const { findStateByPoint } = require('../utils/findStateByPoint')
-const { distanceWeightFunction } = require('../utils/searchWeights')
-const { validateCoords } = require('../utils/coordValidation')
-const models = { waterbodies: 'WATERBODIES', geoplaces: 'GEOPLACES' }
+import catchAsync from "../utils/catchAsync"
+import { QueryError } from "../utils/errors/QueryError"
+import Geoplace from "../models/geoplace"
+import Waterbody from "../models/waterbody"
+import { validateState } from "../utils/stateValidation"
+import { findStateByPoint } from "../utils/findStateByPoint"
+import { distanceWeightFunction } from "../utils/searchWeights"
+import { validateCoords } from '../utils/coordValidation'
+import { PipelineStage } from "mongoose"
+
+type Model = 'WATERBODIES' | 'GEOPLACES'
+type Models = { waterbodies: 'WATERBODIES', geoplaces: 'GEOPLACES' }
+const models: Models = { waterbodies: 'WATERBODIES', geoplaces: 'GEOPLACES' }
 
 ////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -16,10 +20,9 @@ const models = { waterbodies: 'WATERBODIES', geoplaces: 'GEOPLACES' }
 ////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////
 
+const createFilters = (value: string, model: Model ): Object[] => {
 
-const createFilters = (value, model) => {
-
-    const filters = []
+    const filters: Object[] = []
 
     const parsedValue = value.split(',').map(x => x.trim())
 
@@ -46,7 +49,7 @@ const createFilters = (value, model) => {
 
 
 
-const createWaterbodiesPipeline = value => ([
+const createWaterbodiesPipeline = (value: string): PipelineStage[] => ([
     { $match: { $and: createFilters(value, models.waterbodies) } },
     { $addFields: { rank: '$weight' } },
     { $project: {
@@ -67,8 +70,8 @@ const createWaterbodiesPipeline = value => ([
 
 
 const createWaterbodiesGeospatialPipeline = (
-    value, coords, maxDistance=300000
-) => ([{ 
+    value: string, coords: [number, number], maxDistance: number = 300000
+): PipelineStage[] => ([{ 
     $geoNear: { 
         near: {
             type: 'Point',
@@ -109,7 +112,7 @@ const createWaterbodiesGeospatialPipeline = (
 
 
 
-const createGeoplacesPipeline = value => ([
+const createGeoplacesPipeline = (value: string): PipelineStage[] => ([
     { $match: { $and: createFilters(value, models.geoplaces) } },
     { $addFields: { rank: '$weight' } },
     { $sort: { rank: -1 } },
@@ -130,8 +133,8 @@ const createGeoplacesPipeline = value => ([
 
 
 const createGeoplacesGeospatialPipeline = (
-    value, coords, maxDistance=500000
-) => ([{ 
+    value: string, coords: [number, number], maxDistance: number = 500000
+): PipelineStage[] => ([{ 
         $geoNear: { 
             near: {
                 type: 'Point',
@@ -183,15 +186,15 @@ const createGeoplacesGeospatialPipeline = (
 
 
 
-const autocompletePlaces = catchAsync(async (req, res) => {
+export const autocompletePlaces = catchAsync(async (req, res) => {
 
     const { value, lnglat } = req.query;
 
-    const pipeline = []
+    let pipeline: PipelineStage[] = []
 
     if(lnglat && value.length <= 8){
         const coords = lnglat.split(',').map(x => parseFloat(x))
-        if(validateCoords(coords[0], coords[1])){
+        if(validateCoords(coords)){
             pipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
         }else{
             pipeline = [ ...createGeoplacesPipeline(value)]
@@ -212,16 +215,16 @@ const autocompletePlaces = catchAsync(async (req, res) => {
 
 
 
-const autocompleteWaterbodies = catchAsync( async (req, res) => {
+export const autocompleteWaterbodies = catchAsync( async (req, res) => {
 
     const { value, lnglat } = req.query;
 
-    const pipeline = []
+    let pipeline: PipelineStage[] = []
 
     if(lnglat && value.length <= 8){
 
         const coords = lnglat.split(',').map(x => parseFloat(x))
-        if(validateCoords(coords[0], coords[1])){
+        if(validateCoords(coords)){
             pipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
         }else{
             pipeline = [ ...createWaterbodiesPipeline(value) ]
@@ -236,7 +239,7 @@ const autocompleteWaterbodies = catchAsync( async (req, res) => {
 
     if(!lnglat || value.length > 8){
 
-        pipeline = [ ...createWaterbodiesPipeline(value) ]
+        const pipeline = [ ...createWaterbodiesPipeline(value) ]
 
         const results = await Waterbody.aggregate(pipeline)
 
@@ -247,18 +250,18 @@ const autocompleteWaterbodies = catchAsync( async (req, res) => {
 
 
 
-const autocompleteAll = catchAsync( async (req, res) => {
+export const autocompleteAll = catchAsync( async (req, res) => {
 
     const { value, lnglat } = req.query;
 
-    const waterbodiesPipeline = []
-    const geoplacesPipeline = []
+    let waterbodiesPipeline: PipelineStage[] = []
+    let geoplacesPipeline: PipelineStage[] = []
 
     if(lnglat && value.length <= 8){
 
         const coords = lnglat.split(',').map(x => parseFloat(x))
 
-        if(validateCoords(coords[0], coords[1])){
+        if(validateCoords(coords)){
             waterbodiesPipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
             geoplacesPipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
         }else{
@@ -307,7 +310,7 @@ const autocompleteAll = catchAsync( async (req, res) => {
 
 
 
-const getStateByCoords = catchAsync( async(req, res) => {
+export const getStateByCoords = catchAsync( async(req, res) => {
 
     const { lnglat } = req.query;
 
@@ -320,9 +323,3 @@ const getStateByCoords = catchAsync( async(req, res) => {
 })
 
 
-module.exports = { 
-    autocompletePlaces,
-    autocompleteWaterbodies,
-    autocompleteAll,
-    getStateByCoords
-}
