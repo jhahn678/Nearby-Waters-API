@@ -54,6 +54,9 @@ const createWaterbodiesPipeline = value => ([
         type: 'WATERBODY',
         name: '$name',
         states: '$states',
+        counties: '$counties',
+        country: '$country',
+        subregion: '$subregion',
         classification: '$classification',
         rank: '$rank'
     }},
@@ -95,6 +98,9 @@ const createWaterbodiesGeospatialPipeline = (
         type: 'WATERBODY',
         name: '$name',
         states: '$states',
+        counties: '$counties',
+        country: '$country',
+        subregion: '$subregion',
         classification: '$classification',
         distanceFrom: '$distanceFrom',
         rank: '$rank'

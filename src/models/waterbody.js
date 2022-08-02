@@ -5,6 +5,9 @@ const waterbodySchema = new mongoose.Schema({
     states: [String],
     classification: String,
     weight: Number,
+    country: String,
+    ccode: String,
+    subregion: String,
     geometries: [
         {
             type: mongoose.Schema.Types.ObjectId,
