@@ -1,5 +1,4 @@
-const express = require('express')
-import { Application } from 'express'
+import express, { Application } from 'express'
 import MongoDB from './config/mongo'
 import cors from 'cors'
 import routes from './routes'
