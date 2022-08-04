@@ -1,9 +1,9 @@
-import Geoplace from '../models/geoplace'
+import Geoplace, { IGeoplace } from '../models/geoplace'
 import { Request } from 'express'
 import catchAsync from '../utils/catchAsync'
 import { validateCoords } from '../utils/coordValidation'
 import { milesToMeters } from '../utils/conversions'
-import { QueryOptions } from 'mongoose'
+import { FilterQuery } from 'mongoose'
 
 
 interface GetGeoplaceQuery {
@@ -41,7 +41,7 @@ export const getGeoplaces = catchAsync(async(req: Request<{},{},{},GetGeoplacesQ
 
     const { value, states, lnglat, within, country, counties, weight } = req.query;
 
-    const filters: QueryOptions[] = []
+    const filters: FilterQuery<IGeoplace>[] = []
 
     if(value){
         filters.push({ name: { $regex: `^${value}`, options: 'i' }})
@@ -55,15 +55,12 @@ export const getGeoplaces = catchAsync(async(req: Request<{},{},{},GetGeoplacesQ
         if(validateCoords(coords)){
             const geometry = { type: 'Point', coordinates: coords }
             if(within){
-                filters.push({ simplified_geometries: { 
-                    $near: { $geometry: geometry },
-                    $maxDistance: milesToMeters(within) 
-                }})
-            }else{
-                filters.push({ simplified_geometries: { 
-                    $near: { $geometry: geometry },
-                    $maxDistance: milesToMeters(50)
-                }})
+                filters.push({ 
+                    simplified_geometries: { 
+                        $near: { $geometry: geometry },
+                        $maxDistance: within ? milesToMeters(within) : milesToMeters(50) 
+                    }
+                })
             }
         }
     }
@@ -79,7 +76,9 @@ export const getGeoplaces = catchAsync(async(req: Request<{},{},{},GetGeoplacesQ
         filters.push({ weight: num })
     }
 
-    const geoplaces = await Geoplace.find(filters)
+    const geoplaces = await Geoplace
+        .find({ $and: filters })
+        .lean()
 
     res.status(200).json(geoplaces)
 

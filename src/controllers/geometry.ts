@@ -1,7 +1,7 @@
-import Geometry from "../models/geometry";
+import Geometry, { IGeometry } from "../models/geometry";
 import { Request } from 'express'
 import catchAsync from "../utils/catchAsync";
-import { QueryOptions } from 'mongoose'
+import { FilterQuery } from 'mongoose'
 import { validateCoords } from "../utils/coordValidation";
 
 
@@ -34,7 +34,7 @@ interface GetGeometriesQuery{
 export const getGeometries = catchAsync(async(req: Request<{},{},{},GetGeometriesQuery>, res, next) => {
     const { _ids, name, classification, lnglat, within } = req.query;
 
-    const filters: QueryOptions[] = []
+    const filters: FilterQuery<IGeometry>[] = []
 
     if(_ids){
         const split = _ids.split(',').map(x => x.trim())
@@ -62,4 +62,10 @@ export const getGeometries = catchAsync(async(req: Request<{},{},{},GetGeometrie
             }
         }
     }
+
+    const results = await Geometry
+        .find({ $and: filters})
+        .lean()
+
+    res.status(200).json(results)
 })

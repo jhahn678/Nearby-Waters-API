@@ -1,9 +1,9 @@
-import Waterbody from "../models/waterbody";
+import Waterbody, { IWaterbody } from "../models/waterbody";
 import catchAsync from "../utils/catchAsync";
 import { validateCoords } from '../utils/coordValidation'
 import { milesToMeters } from "../utils/conversions";
 import { Request } from "express";
-import { QueryOptions } from 'mongoose'
+import { FilterQuery } from 'mongoose'
 
 
 interface WaterbodyQuery {
@@ -64,7 +64,7 @@ export const getWaterbodies = catchAsync(async (req: Request<{},{},{},Waterbodie
         geometries, lnglat, within 
     } = req.query;
 
-    const filters: QueryOptions[] = []
+    const filters: FilterQuery<IWaterbody>[] = []
 
     if(value){
         filters.push({ name: { $regex: `^${value}`, options: 'i' }})
@@ -93,24 +93,20 @@ export const getWaterbodies = catchAsync(async (req: Request<{},{},{},Waterbodie
         const coords = lnglat.split(',').map(x => parseFloat(x))
         if(validateCoords(coords)){
             const geometry = { type: 'Point', coordinates: coords }
-            if(within){
-                filters.push({ simplified_geometries: { 
-                    $near: { $geometry: geometry },
-                    $maxDistance: milesToMeters(within) 
-                }})
-            }else{
-                filters.push({ simplified_geometries: { 
-                    $near: { $geometry: geometry },
-                    $maxDistance: milesToMeters(50)
-                }})
-            }
+                filters.push({ 
+                    simplified_geometries: { 
+                        $near: { 
+                            $geometry: geometry, 
+                            $maxDistance: within ? milesToMeters(within) : milesToMeters(50)
+                        }
+                    }
+                })
         }
     }
 
-
     if(geometries){
         const results = await Waterbody
-            .find(filters)
+            .find({ $and: filters })
             .populate('geometries')
             .lean()
             .sort({ weight: -1 })
@@ -118,7 +114,7 @@ export const getWaterbodies = catchAsync(async (req: Request<{},{},{},Waterbodie
         res.status(200).json(results)
     }else{
         const results = await Waterbody
-            .find(filters)
+            .find({ $and: filters })
             .lean()
             .sort({ weight: -1 })
 
