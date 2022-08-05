@@ -52,19 +52,10 @@ const createFilters = (value: string, model: Model ): Object[] => {
 const createWaterbodiesPipeline = (value: string): PipelineStage[] => ([
     { $match: { $and: createFilters(value, models.waterbodies) } },
     { $addFields: { rank: '$weight' } },
-    { $project: {
-        _id: '$_id',
-        type: 'WATERBODY',
-        name: '$name',
-        states: '$states',
-        counties: '$counties',
-        country: '$country',
-        subregion: '$subregion',
-        classification: '$classification',
-        rank: '$rank'
-    }},
     { $sort: { rank: -1 } },
-    { $limit : 8 }
+    { $limit : 8 },
+    { $project: { simplified_geometries: 0 }},
+    { $addFields: { type: 'WATERBODY' }},
 ])
 
 
@@ -96,18 +87,8 @@ const createWaterbodiesGeospatialPipeline = (
     },
     { $sort: { rank: -1 } },
     { $limit : 8 },
-    { $project: {
-        _id: '$_id',
-        type: 'WATERBODY',
-        name: '$name',
-        states: '$states',
-        counties: '$counties',
-        country: '$country',
-        subregion: '$subregion',
-        classification: '$classification',
-        distanceFrom: '$distanceFrom',
-        rank: '$rank'
-    }}
+    { $project: { simplified_geometries: 0 }},
+    { $addFields: { type: 'WATERBODY' }}
 ])
 
 
@@ -117,17 +98,7 @@ const createGeoplacesPipeline = (value: string): PipelineStage[] => ([
     { $addFields: { rank: '$weight' } },
     { $sort: { rank: -1 } },
     { $limit : 8 },
-    { $project: {
-        _id: '$_id',
-        type: 'GEOPLACE',
-        fcode: '$fcode',
-        name: '$name',
-        state: '$state',
-        abbr: '$abbr',
-        geometry: '$geometry',
-        county: '$county',
-        rank: '$rank'
-    }}
+    { $addFields: { type: 'GEOPLACE', }}
 ])
 
 
@@ -157,20 +128,10 @@ const createGeoplacesGeospatialPipeline = (
                 }
             }}
         },
-        { $project: {
-            _id: '$_id',
-            type: 'GEOPLACE',
-            name: '$name',
-            state: '$state',
-            abbr: '$abbr',
-            fcode: '$fcode',
-            geometry: '$geometry',
-            county: '$county',
-            distanceFrom: '$distanceFrom',
-            rank: '$rank'
-        }},
         { $sort: { rank: -1 }},
-        { $limit: 5 }
+        { $limit: 5 },
+        { $addFields: { type: 'GEOPLACE', }}
+        
 ])
 
 
