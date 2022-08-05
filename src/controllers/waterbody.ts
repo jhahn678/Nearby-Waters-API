@@ -69,6 +69,9 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
         page, limit 
     } = req.query;
 
+
+    console.log(page)
+
     const filters:  FilterQuery<IWaterbody>[] = []
 
     const pipeline: PipelineStage[] = []
@@ -147,13 +150,14 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
     }
 
     projection.push({ $project: { simplified_geometries: 0 } })
+    
            
 
     pipeline.push({ 
         $facet: {
             metadata: [ 
                 { $count: "total" }, 
-                { $addFields: { page: parseInt(page) || 1 } } 
+                { $addFields: { page: parseInt(page) || 1, limit: parseInt(limit) || 50 } } 
             ],
             data: [ 
                 { $sort: { rank: -1 } },
