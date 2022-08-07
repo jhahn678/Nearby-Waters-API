@@ -77,7 +77,7 @@ export const getGeoplaces = catchAsync(async(req: Request<{},{},{},GetGeoplacesQ
     }
 
     const geoplaces = await Geoplace
-        .find({ $and: filters })
+        .find({ $and: filters.length > 0 ? filters : [{}] })
         .lean()
 
     res.status(200).json(geoplaces)
