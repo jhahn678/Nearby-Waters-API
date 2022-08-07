@@ -69,9 +69,6 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
         page, limit 
     } = req.query;
 
-
-    console.log(page)
-
     const filters:  FilterQuery<IWaterbody>[] = []
 
     const pipeline: PipelineStage[] = []
@@ -166,15 +163,26 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
                 ...projection
             ]
         }
-    })
+    }, { $unwind: { path: '$metadata' } })
     
 
     const result = await Waterbody.aggregate(pipeline)
 
+    if(result.length === 0){
+        res.status(200).json({
+            metadata: {
+                total: 0, 
+                page: 1, 
+                limit: parseInt(limit) || 50 
+            },
+            data: []
+        })
+    }else{
+        res.status(200).json({
+            metadata: result[0].metadata,
+            data: result[0].data
+        })
+    }
 
-    res.status(200).json({
-        metadata: result[0].metadata[0],
-        data: result[0].data
-    })
 })
 
