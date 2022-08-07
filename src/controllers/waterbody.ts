@@ -29,6 +29,8 @@ export const getWaterbody = catchAsync(async (req: Request<{},{},{},WaterbodyQue
 })
 
 
+type Sort = { rank: -1 } | { distanceFrom: 1 } 
+
 interface WaterbodiesQuery {
     value?: string
     /**
@@ -57,6 +59,7 @@ interface WaterbodiesQuery {
     within?: string | number
     page: string
     limit: string
+    sort?: 'distance' | 'rank'
 }
 
 
@@ -66,7 +69,7 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
         states, ccode, subregion, 
         minWeight, maxWeight,
         geometries, lnglat, within,
-        page, limit 
+        page, limit, sort 
     } = req.query;
 
     const filters:  FilterQuery<IWaterbody>[] = []
@@ -133,7 +136,6 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
     }
 
     const projection: PipelineStage.FacetPipelineStage[] = []
-    
 
     if(geometries){
         projection.push({
@@ -147,8 +149,14 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
     }
 
     projection.push({ $project: { simplified_geometries: 0 } })
+
+    let sortMethod: Sort;
     
-           
+    if(sort && sort === 'distance'){
+        sortMethod = { distanceFrom: 1 }
+    }else{
+        sortMethod = { rank: -1 }
+    }
 
     pipeline.push({ 
         $facet: {
@@ -157,7 +165,7 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
                 { $addFields: { page: parseInt(page) || 1, limit: parseInt(limit) || 50 } } 
             ],
             data: [ 
-                { $sort: { rank: -1 } },
+                { $sort: sortMethod },
                 { $skip: (parseInt(limit) * (parseInt(page) - 1)) || 0 }, 
                 { $limit: parseInt(limit) || 50 },
                 ...projection
