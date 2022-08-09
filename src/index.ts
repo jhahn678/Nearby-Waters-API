@@ -20,7 +20,7 @@ app.get('/', (req, res) => {
 
 app.use('*', (err, req, res, next) => {
     console.error(err)
-    return res.status(400).json({ error: err.message || 'Uncaught server error' })
+    return res.status(err.status || 500).json({ error: err.message || 'Uncaught server error' })
 })
 
 app.use('*', (req, res) => {
