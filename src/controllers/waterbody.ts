@@ -1,4 +1,5 @@
 import Waterbody, { IWaterbody } from "../models/waterbody";
+import Geometry from '../models/geometry'
 import catchAsync from "../utils/catchAsync";
 import { validateCoords } from '../utils/coordValidation'
 import { milesToMeters } from "../utils/conversions";
@@ -6,6 +7,8 @@ import { Request } from "express";
 import { FilterQuery, PipelineStage } from 'mongoose'
 import { distanceWeightFunction } from "../utils/searchWeights";
 import { CoordinateError } from "../utils/errors/CoordinateError";
+import { RequestError } from "../utils/errors/RequestError";
+import { UnknownReferenceError } from "../utils/errors/UnknownReferenceError";
 
 
 interface WaterbodyQuery {
@@ -150,12 +153,10 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
 
     projection.push({ $project: { simplified_geometries: 0 } })
 
-    let sortMethod: Sort;
+    let sortMethod: Sort = { rank: -1 }
     
     if(sort && sort === 'distance'){
         sortMethod = { distanceFrom: 1 }
-    }else{
-        sortMethod = { rank: -1 }
     }
 
     pipeline.push({ 
@@ -193,4 +194,119 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
     }
 
 })
+
+
+interface MergeWaterbodies {
+    parent: string,
+    children: string[]
+}
+
+export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbodies>, res, next) => {
+    const { parent, children } = req.body;
+    
+    if(!parent) throw new RequestError(400, 'Parent waterbody _id is required')
+    if(children.length === 0) throw new RequestError(400, 'Children waterbody(s) are required')
+
+    const childWaterbodies = await Waterbody.find({ _id: { $in: children }})
+
+    if(childWaterbodies.length === 0) throw new UnknownReferenceError(children)
+
+    const childrenGeometries: string[] = []
+
+    for(let child of childWaterbodies){
+        for(let x of child.geometries){
+            childrenGeometries.push(x)
+        }
+    }
+
+    const geometries = await Geometry.updateMany(
+        { _id: { $in: childWaterbodies }}, 
+        { $set: { parent_waterbody: parent } }
+    )
+
+    await Waterbody.deleteMany({ _id: { $in: children } })
+
+    const waterbody = await Waterbody
+        .findByIdAndUpdate(parent, 
+            { $push: { geometries: { $each: childrenGeometries } } },
+            { new: true }
+        )
+        .populate('geometries')
+
+    res.status(200).json({
+        waterbody, 
+        updated_geometries: geometries.modifiedCount, 
+        deleted_waterbodies: childWaterbodies.length 
+    })
+
+}) 
+
+
+
+interface GetDuplicatesQuery {
+    name: string
+    weight?: number
+    state?: string
+}
+
+
+export const getPossibleDuplicates = catchAsync(async(req: Request<{},{},{},GetDuplicatesQuery>, res, next) => {
+    
+    const { name, weight, state } = req.query;
+
+    const pipeline: PipelineStage[] = []
+
+    if(weight) pipeline.push({
+        $match: { weight: weight }
+    })
+
+    if(state) pipeline.push({
+        $match: { states: state }
+    })
+
+    pipeline.push({
+        $group: {
+            _id: '$name',
+            waterbodies: {
+                $push: '$_id'
+            }
+        }
+    },{
+        $match: { 
+            $and: [{ 
+                $expr: { $gt: [{ $size: '$waterbodies'}, 1]}
+            },{ 
+                _id: name 
+            }]
+        }
+    }, {
+        $lookup: {
+            from:'waterbodies',
+            localField: 'waterbodies',
+            foreignField: '_id',
+            as: 'waterbodies'
+        }
+    }, {
+        $unwind: { path: '$waterbodies' }
+    }, {
+        $replaceRoot: { newRoot: '$waterbodies' }
+    }, {
+        $lookup: {
+            from: 'geometries',
+            localField: 'waterbodies.geometries',
+            foreignField: '_id',
+            as: 'waterbodies.geometries'
+        }
+    })
+
+    const waterbodies = await Waterbody.aggregate(pipeline)
+
+    res.status(200).json(waterbodies)
+})
+
+
+
+
+
+
 
