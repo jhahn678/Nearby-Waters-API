@@ -1,4 +1,5 @@
 import catchAsync from "../utils/catchAsync"
+import { Request } from 'express'
 import { QueryError } from "../utils/errors/QueryError"
 import Geoplace from "../models/geoplace"
 import Waterbody from "../models/waterbody"
@@ -283,4 +284,26 @@ export const getStateByCoords = catchAsync( async(req, res) => {
     res.status(200).json(state)
 })
 
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////
+//////////////             Autocomplete for dev query by name         //////////////////
+////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+interface DistinctNameQuery { 
+    value: string
+}
+
+export const autocompleteDistinctName = catchAsync(async(req: Request<{},{},{},DistinctNameQuery>, res, next) => {
+    const { value } = req.query;
+
+    const results = await Waterbody.distinct('name', { name: { $regex: `^${value}`, $options: 'i' }})
+
+    res.status(200).json(results)
+})
 
