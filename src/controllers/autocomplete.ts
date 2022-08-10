@@ -300,6 +300,7 @@ interface DistinctNameQuery {
 }
 
 export const autocompleteDistinctName = catchAsync(async(req: Request<{},{},{},DistinctNameQuery>, res, next) => {
+    
     const { value } = req.query;
 
     const results = await Waterbody.distinct('name', { name: { $regex: `^${value}`, $options: 'i' }})
@@ -307,3 +308,31 @@ export const autocompleteDistinctName = catchAsync(async(req: Request<{},{},{},D
     res.status(200).json(results)
 })
 
+
+
+
+
+
+export const autocompleteDistinctDuplicatedName = catchAsync(async(req: Request<{},{},{},DistinctNameQuery>, res, next) => {
+
+    const { value } = req.query
+
+    const waterbodies = await Waterbody.aggregate([{
+        $group: {
+            _id: '$name',
+            waterbodies: {
+                $push: '$_id'
+            }
+        }
+    },{
+        $match: {
+            $and: [
+              { $expr: { $gt: [{ $size: '$waterbodies'}, 1]}},
+              { _id: { $regex: `^${value}`, $options: 'i' } }
+            ]
+          }
+    }])
+
+    res.status(200).json(waterbodies.map(wb => wb._id))
+
+})
