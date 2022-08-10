@@ -7,6 +7,7 @@ import { authorizeAdmin } from '../middleware/auth'
 const router = Router()
 
 router.get('/waterbody', controllers.getWaterbody)
+router.delete('/waterbody', authorizeAdmin, controllers.deleteWaterbody)
 router.get('/waterbodies', controllers.getWaterbodies)
 router.patch('/waterbodies', authorizeAdmin, controllers.mergeWaterbodies)
 router.get('/waterbodies/duplicate-name', controllers.getPossibleDuplicates)

@@ -257,7 +257,7 @@ export const getPossibleDuplicates = catchAsync(async(req: Request<{},{},{},GetD
     const pipeline: PipelineStage[] = []
 
     if(weight) pipeline.push({
-        $match: { weight: weight }
+        $match: { weight: { $gte: weight } }
     })
 
     if(state) pipeline.push({
@@ -271,7 +271,7 @@ export const getPossibleDuplicates = catchAsync(async(req: Request<{},{},{},GetD
                 $push: '$_id'
             }
         }
-    },{
+    }, {
         $match: { 
             $and: [{ 
                 $expr: { $gt: [{ $size: '$waterbodies'}, 1]}
@@ -293,10 +293,16 @@ export const getPossibleDuplicates = catchAsync(async(req: Request<{},{},{},GetD
     }, {
         $lookup: {
             from: 'geometries',
-            localField: 'waterbodies.geometries',
+            localField: 'geometries',
             foreignField: '_id',
-            as: 'waterbodies.geometries'
+            as: 'geometries'
         }
+    }, {
+        $addFields: {
+            totalGeometries: { $size: '$geometries' }
+        }
+    }, {
+        $sort: { totalGeometries: -1 }
     })
 
     const waterbodies = await Waterbody.aggregate(pipeline)
@@ -304,6 +310,29 @@ export const getPossibleDuplicates = catchAsync(async(req: Request<{},{},{},GetD
     res.status(200).json(waterbodies)
 })
 
+
+
+interface DeleteWaterbodyReqBody {
+    _id: string
+}
+
+export const deleteWaterbody = catchAsync(async(req: Request<{},{},DeleteWaterbodyReqBody>, res, next) => {
+
+    const { _id } = req.body;
+
+    if(!_id) throw new RequestError(400, 'Waterbody _id is required')
+
+    const deleted = await Waterbody.findByIdAndDelete(_id)
+
+    if(!deleted) throw new ReferenceError('Waterbody does not exist')
+
+    const result = await Geometry.deleteMany({ _id: { $in: deleted.geometries } })
+
+    res.status(204).json({
+        deleted_waterbodies: 1,
+        deleted_geometries: result.deletedCount
+    })
+})
 
 
 
