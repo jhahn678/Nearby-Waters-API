@@ -336,3 +336,5 @@ export const autocompleteDistinctDuplicatedName = catchAsync(async(req: Request<
     res.status(200).json(waterbodies.map(wb => wb._id))
 
 })
+
+

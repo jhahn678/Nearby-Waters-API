@@ -9,7 +9,7 @@ import { distanceWeightFunction } from "../utils/searchWeights";
 import { CoordinateError } from "../utils/errors/CoordinateError";
 import { RequestError } from "../utils/errors/RequestError";
 import { UnknownReferenceError } from "../utils/errors/UnknownReferenceError";
-
+import { GeoJSON } from 'geojson'
 
 interface WaterbodyQuery {
     _id: string,
@@ -212,26 +212,43 @@ export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbo
     if(childWaterbodies.length === 0) throw new UnknownReferenceError(children)
 
     const childrenGeometries: string[] = []
+    const childrenSimplifiedGeometries: GeoJSON[] = []
+    const childrenStates: string[] = []
+    const childrenCounties: string[] = []
 
     for(let child of childWaterbodies){
         for(let x of child.geometries){
             childrenGeometries.push(x)
         }
+        for(let x of child.simplified_geometries.geometries){
+            childrenSimplifiedGeometries.push(x)
+        }
+        for(let x of child.states){
+            childrenStates.push(x)
+        }
+        for(let x of child.counties){
+            childrenCounties.push(x)
+        }
     }
 
     const geometries = await Geometry.updateMany(
-        { _id: { $in: childWaterbodies }}, 
+        { _id: { $in: childrenGeometries }}, 
         { $set: { parent_waterbody: parent } }
     )
 
     await Waterbody.deleteMany({ _id: { $in: children } })
 
-    const waterbody = await Waterbody
-        .findByIdAndUpdate(parent, 
-            { $push: { geometries: { $each: childrenGeometries } } },
-            { new: true }
-        )
-        .populate('geometries')
+    const waterbody = await Waterbody.findByIdAndUpdate(parent, {
+        $push: { 
+            geometries: { $each: childrenGeometries },
+            'simplified_geometries.geometries': { $each: childrenSimplifiedGeometries } 
+        },
+        $addToSet: {
+            counties: { $each: childrenCounties },
+            states: { $each: childrenStates }
+        }
+    }, { new: true }).populate('geometries')
+
 
     res.status(200).json({
         waterbody, 
@@ -245,19 +262,19 @@ export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbo
 
 interface GetDuplicatesQuery {
     name: string
-    weight?: number
+    weight?: string
     state?: string
 }
 
 
-export const getPossibleDuplicates = catchAsync(async(req: Request<{},{},{},GetDuplicatesQuery>, res, next) => {
+export const getWaterbodiesByName = catchAsync(async(req: Request<{},{},{},GetDuplicatesQuery>, res, next) => {
     
     const { name, weight, state } = req.query;
 
     const pipeline: PipelineStage[] = []
 
     if(weight) pipeline.push({
-        $match: { weight: { $gte: weight } }
+        $match: { weight: { $gte: parseFloat(weight) } }
     })
 
     if(state) pipeline.push({
@@ -272,13 +289,7 @@ export const getPossibleDuplicates = catchAsync(async(req: Request<{},{},{},GetD
             }
         }
     }, {
-        $match: { 
-            $and: [{ 
-                $expr: { $gt: [{ $size: '$waterbodies'}, 1]}
-            },{ 
-                _id: name 
-            }]
-        }
+        $match: {  _id: name }
     }, {
         $lookup: {
             from:'waterbodies',
@@ -332,6 +343,35 @@ export const deleteWaterbody = catchAsync(async(req: Request<{},{},DeleteWaterbo
         deleted_waterbodies: 1,
         deleted_geometries: result.deletedCount
     })
+})
+
+
+
+
+export const getDistinctDuplicatedNames = catchAsync(async(req, res, next) => {
+
+    const waterbodies = await Waterbody.aggregate([{
+        $match: { weight: { $gte: 1.3 } }
+    },{
+        $group: {
+            _id: '$name',
+            waterbodies: {
+                $push: '$_id'
+            }
+        }
+    },{ 
+        $match: { 
+            $and: [
+                {$expr: { $gt: [{ $size: '$waterbodies'}, 1]} },
+                {_id: { $regex:  "Creek", $options: 'i' }}
+            ]
+        }
+    }])
+
+    console.log(waterbodies.length)
+
+    res.status(200).json(waterbodies.map(wb => wb._id))
+
 })
 
 
