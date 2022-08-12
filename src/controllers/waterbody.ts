@@ -399,13 +399,18 @@ export const getDistinctName = catchAsync(async(req: Request<{},{},{},GetDistinc
         names = await Waterbody.distinct('name')
     }
     
+    
     const x = parseInt(index);
+
+    const nameSlice = names.slice(x, (x + 10))
+
 
     res.status(200).json({
         index: x,
         position: x + 1,
         total: names.length,
-        value: names[x]
+        next: x + 10 < names.length,
+        values: nameSlice
     })
 
 })
