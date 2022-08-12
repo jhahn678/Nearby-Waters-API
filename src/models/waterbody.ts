@@ -9,6 +9,7 @@ export interface IWaterbody {
     classification: WaterbodyClassification
     weight: number
     country: string
+    counties: string[]
     ccode: string
     subregion: string
     geometries: string[]
@@ -23,6 +24,7 @@ const waterbodySchema = new mongoose.Schema<IWaterbody>({
     country: String,
     ccode: String,
     subregion: String,
+    counties: [String],
     geometries: [
         {
             type: mongoose.Schema.Types.ObjectId,
