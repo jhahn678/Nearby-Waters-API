@@ -7,11 +7,13 @@ import { authorizeAdmin } from '../middleware/auth'
 const router = Router()
 
 router.get('/waterbody', controllers.getWaterbody)
+router.get('/waterbody/names', controllers.getDistinctName)
 router.delete('/waterbody', authorizeAdmin, controllers.deleteWaterbody)
 router.get('/waterbodies', controllers.getWaterbodies)
 router.patch('/waterbodies', authorizeAdmin, controllers.mergeWaterbodies)
 router.get('/waterbodies/name', controllers.getWaterbodiesByName)
 router.get('/waterbodies/names', controllers.getDistinctDuplicatedNames)
+router.get('/waterbod')
 router.get('/geoplace', controllers.getGeoplace)
 router.get('/geoplaces', controllers.getGeoplaces)
 router.get('/geometry', controllers.getGeometry)

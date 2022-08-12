@@ -375,6 +375,42 @@ export const getDistinctDuplicatedNames = catchAsync(async(req, res, next) => {
 })
 
 
+interface GetDistinctNames {
+    index: string
+    weight?: string
+    state?: string
+}
+
+export const getDistinctName = catchAsync(async(req: Request<{},{},{},GetDistinctNames>, res, next) => {
+    
+    const { state, weight, index } = req.query;
+
+    let filters: FilterQuery<IWaterbody>[] = []
+    
+    let names: string[] = [];
+
+    if(state) filters.push({ states: state })
+
+    if(weight) filters.push({ weight: parseFloat(weight)})
+
+    if(filters.length > 0){
+        names = await Waterbody.distinct('name', { $and: filters })
+    }else{
+        names = await Waterbody.distinct('name')
+    }
+    
+    const x = parseInt(index);
+
+    res.status(200).json({
+        index: x,
+        position: x + 1,
+        total: names.length,
+        value: names[x]
+    })
+
+})
+
+
 
 
 
