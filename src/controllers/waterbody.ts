@@ -10,6 +10,7 @@ import { CoordinateError } from "../utils/errors/CoordinateError";
 import { RequestError } from "../utils/errors/RequestError";
 import { UnknownReferenceError } from "../utils/errors/UnknownReferenceError";
 import { GeoJSON } from 'geojson'
+import { QueryError } from "../utils/errors/QueryError";
 
 interface WaterbodyQuery {
     _id: string,
@@ -413,6 +414,37 @@ export const getDistinctName = catchAsync(async(req: Request<{},{},{},GetDistinc
         values: nameSlice
     })
 
+})
+
+
+
+
+interface NearestWaterbodyQuery {
+    /** Comma seperated -- longitude, latitude */
+    lnglat: string,
+}
+
+export const getNearestWaterbodies = catchAsync(async (req: Request<{},{},{},NearestWaterbodyQuery>, res, next) => {
+    const { lnglat } = req.query;
+
+    if(!lnglat) throw new QueryError(400, 'lnglat is required')
+
+    const coordinates = lnglat.split(',').map(x => parseFloat(x))
+    if(!validateCoords(coordinates)){
+        throw new CoordinateError(400, 'Provided coordinates are not valid')
+    }
+
+    const waterbodies = await Waterbody.find({ 
+        simplified_geometries: { 
+            $near: {
+                $geometry: { type: 'Point', coordinates },
+                $minDistance: 0,
+                $maxDistance: 10000
+            }
+        }
+    }).limit(2)
+
+    res.status(200).json(waterbodies)
 })
 
 
