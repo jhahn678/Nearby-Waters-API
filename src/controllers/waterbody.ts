@@ -1,5 +1,6 @@
 import Waterbody, { IWaterbody } from "../models/waterbody";
 import Geometry from '../models/geometry'
+import AccessPoint, { IAccessPoint } from "../models/accessPoint";
 import catchAsync from "../utils/catchAsync";
 import { validateCoords } from '../utils/coordValidation'
 import { milesToMeters } from "../utils/conversions";
@@ -11,6 +12,9 @@ import { RequestError } from "../utils/errors/RequestError";
 import { UnknownReferenceError } from "../utils/errors/UnknownReferenceError";
 import { GeoJSON } from 'geojson'
 import { QueryError } from "../utils/errors/QueryError";
+import { AccessPointCreationError } from '../utils/errors/AccessPointCreationError'
+import { validateAccessPointType } from "../utils/accessPointValidations";
+
 
 interface WaterbodyQuery {
     _id: string,
@@ -210,7 +214,7 @@ export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbo
 
     const childWaterbodies = await Waterbody.find({ _id: { $in: children }})
 
-    if(childWaterbodies.length === 0) throw new UnknownReferenceError(children)
+    if(childWaterbodies.length === 0) throw new UnknownReferenceError('WATERBODY', children)
 
     const childrenGeometries: string[] = []
     const childrenSimplifiedGeometries: GeoJSON[] = []
@@ -446,6 +450,63 @@ export const getNearestWaterbodies = catchAsync(async (req: Request<{},{},{},Nea
 
     res.status(200).json(waterbodies)
 })
+
+
+
+
+interface NewAccessPointReq {
+    name: string
+    description?: string
+    accessType: 'PARKING_LOT' | 'PULLOFF' | 'WALK_IN'
+    restrooms?: boolean
+    boatLaunch?: boolean
+    waterbody: string
+    coordinates: [Lng: number, Lat: number]
+}
+
+
+export const addAccessPoint = catchAsync(async(req: Request<{},{},NewAccessPointReq>, res, next) => {
+    const { 
+        name, 
+        description, 
+        accessType, 
+        restrooms, 
+        boatLaunch, 
+        waterbody, 
+        coordinates 
+    } = req.body;
+
+    if(!name) throw new AccessPointCreationError('NAME_NOT_PROVIDED')
+    if(!accessType) throw new AccessPointCreationError('ACCESS_TYPE_NOT_PROVIDED')
+    if(!validateAccessPointType(accessType)) throw new AccessPointCreationError('ACCESS_TYPE_NOT_VALID')
+    if(!waterbody) throw new AccessPointCreationError('WATERBODY_NOT_PROVIDED')
+    if(!(await Waterbody.findById(waterbody))) throw new UnknownReferenceError('WATERBODY', [waterbody])
+    if(!coordinates) throw new AccessPointCreationError('COORDINATES_NOT_PROVIDED')
+    if(!validateCoords(coordinates)) throw new CoordinateError(400, 'Provided coordinates are not valid')
+
+    const accessPoint: IAccessPoint = {
+        name,
+        accessType,
+        waterbody,
+        restrooms: false,
+        boatLaunch: false,
+        geometry: {
+            type: 'Point',
+            coordinates
+        }
+    }
+
+    if(description && typeof description === 'string') accessPoint.description = description;
+    if(restrooms && typeof restrooms === 'boolean') accessPoint.restrooms = restrooms;
+    if(boatLaunch && typeof boatLaunch === 'boolean') accessPoint.boatLaunch = boatLaunch;
+
+    const newAccessPoint = new AccessPoint(accessPoint)
+
+    const saved = await newAccessPoint.save()
+
+    res.status(200).json(saved)
+})
+
 
 
 

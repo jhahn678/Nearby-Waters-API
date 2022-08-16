@@ -3,7 +3,7 @@ import mongoose from 'mongoose'
 
 export interface IAccessPoint {
     name: string
-    description: string
+    description?: string
     accessType: 'PARKING_LOT' | 'PULLOFF' | 'WALK_IN'
     restrooms: boolean
     boatLaunch: boolean
@@ -12,7 +12,10 @@ export interface IAccessPoint {
 }
 
 const accessPointSchema = new mongoose.Schema({
-    name: String,
+    name: {
+        type: String,
+        required: true
+    },
     description: String,
     accessType: {
         type: String,
@@ -28,14 +31,19 @@ const accessPointSchema = new mongoose.Schema({
     },
     waterbody: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Waterbody'
+        ref: 'Waterbody',
+        required: true
     },
     geometry: {
         type: {
             type: String,
-            enum: ['Point']
+            enum: ['Point'],
+            default: 'Point'
         },
-        coordinates: [Number]
+        coordinates: {
+            type: [Number],
+            required: true
+        }
     }
 })
 
