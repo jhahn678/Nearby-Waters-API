@@ -11,10 +11,10 @@ export interface IGeometry{
     states?: AdminOneAbbreviation[],
     admin_one?: AdminOneAbbreviation[],
     admin_two?: string[],
+    counties?: string[],
     parent_waterbody: ObjectId,
     geometry: LineString | Polygon | MultiLineString | MultiPolygon,
     geometry_simplified: LineString | Polygon | MultiLineString | MultiPolygon,
-    counties?: string[],
 
 }
 

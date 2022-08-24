@@ -14,6 +14,7 @@ import { GeoJSON } from 'geojson'
 import { QueryError } from "../utils/errors/QueryError";
 import { AccessPointCreationError } from '../utils/errors/AccessPointCreationError'
 import { validateAccessPointType } from "../utils/accessPointValidations";
+import { validateAdminOne } from "../utils/adminOneValidation";
 
 
 interface WaterbodyQuery {
@@ -267,24 +268,30 @@ export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbo
 
 interface GetDuplicatesQuery {
     name: string
-    weight?: string
-    state?: string
+    classification?: string
+    admin_one?: string
 }
 
 
 export const getWaterbodiesByName = catchAsync(async(req: Request<{},{},{},GetDuplicatesQuery>, res, next) => {
     
-    const { name, weight, state } = req.query;
+    const { name, classification, admin_one } = req.query;
 
     const pipeline: PipelineStage[] = []
 
-    if(weight) pipeline.push({
-        $match: { weight: { $gte: parseFloat(weight) } }
-    })
+    if(classification){
+        const classifications = classification.split(',')
+        pipeline.push({
+            $match: { classification: { $in: classifications } }
+        })
+    }
 
-    if(state) pipeline.push({
-        $match: { admin_one: state }
-    })
+    if(admin_one){
+        const valid = validateAdminOne(admin_one)
+        if(valid) pipeline.push({ 
+            $match: { admin_one: valid }
+        })
+    }
 
     pipeline.push({
         $group: {

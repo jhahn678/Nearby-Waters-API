@@ -2,11 +2,11 @@ import catchAsync from "../utils/catchAsync"
 import { Request } from 'express'
 import { QueryError } from "../utils/errors/QueryError"
 import Geoplace from "../models/geoplace"
-import Waterbody from "../models/waterbody"
+import Waterbody, { IWaterbody } from "../models/waterbody"
 import { validateAdminOne } from "../utils/adminOneValidation"
 import { distanceWeightFunction } from "../utils/searchWeights"
 import { validateCoords } from '../utils/coordValidation'
-import { PipelineStage } from "mongoose"
+import { FilterQuery, PipelineStage } from "mongoose"
 
 ////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -36,7 +36,7 @@ const createFilters = (value: string): Object[] => {
         }})
 
     }else{
-        throw new QueryError(400, 'Invalid request --- Query value must adhere to pattern: "Place", "State"') 
+        throw new QueryError(400, 'Invalid request --- Query value must adhere to pattern: "Place", "State/Province/Municipality"') 
     }
 
     return filters
@@ -260,23 +260,33 @@ export const autocompleteAll = catchAsync( async (req, res) => {
 
 
 
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-//////////////             Autocomplete for dev query by name         //////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-
-
 
 interface DistinctNameQuery { 
-    value: string
+    value: string,
+    classifications?: string,
+    admin_one?: string
 }
 
 export const autocompleteDistinctName = catchAsync(async(req: Request<{},{},{},DistinctNameQuery>, res, next) => {
     
-    const { value } = req.query;
+    const { value, classifications, admin_one } = req.query;
 
-    const results = await Waterbody.distinct('name', { name: { $regex: `^${value}`, $options: 'i' }})
+    const filters:  FilterQuery<IWaterbody>[] = [
+        { name: { $regex: `^${value}`, $options: 'i' } }
+    ]
+
+    if(classifications){
+        filters.push({ classification: { $in: classifications.split(',') }})
+    }
+
+    if(admin_one){
+        const valid = validateAdminOne(admin_one)
+        if(valid) filters.push({ admin_one: valid })
+    }
+
+    const results = await Waterbody.distinct('name', { 
+        $and: filters
+    })
 
     res.status(200).json(results)
 })
@@ -284,6 +294,15 @@ export const autocompleteDistinctName = catchAsync(async(req: Request<{},{},{},D
 
 
 
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////
+//////////////             Autocomplete for dev query by name         //////////////////
+////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////
 
 
 export const autocompleteDistinctDuplicatedName = catchAsync(async(req: Request<{},{},{},DistinctNameQuery>, res, next) => {
