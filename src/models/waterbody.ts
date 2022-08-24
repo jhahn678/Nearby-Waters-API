@@ -1,30 +1,30 @@
 import mongoose from 'mongoose'
-import { StateAbbreviation } from "../types/enums/states"
 import { WaterbodyClassification } from '../types/enums/models'
 import { GeometryCollection } from "geojson"
 
 export interface IWaterbody {
+    _id: string,
     name: string
-    states: StateAbbreviation[]
     classification: WaterbodyClassification
-    weight: number
     country: string
-    counties: string[]
     ccode: string
     subregion: string
+    admin_one: string[]
+    admin_two: string[]
     geometries: string[]
     simplified_geometries: GeometryCollection
+    weight: number
 }
 
 const waterbodySchema = new mongoose.Schema<IWaterbody>({
     name: String,
-    states: [String],
     classification: String,
-    weight: Number,
     country: String,
     ccode: String,
     subregion: String,
-    counties: [String],
+    admin_one: [String],
+    admin_two: [String],
+    weight: Number,
     geometries: [
         {
             type: mongoose.Schema.Types.ObjectId,

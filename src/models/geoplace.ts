@@ -1,5 +1,5 @@
 import mongoose from 'mongoose'
-import { StateName, StateAbbreviation } from '../types/enums/states'
+import { AdminOneName, AdminOneAbbreviation } from '../types/enums/adminOne'
 import { Point } from 'geojson'
 
 export interface IGeoplace {
@@ -7,8 +7,8 @@ export interface IGeoplace {
     fclass: string,
     fcode: string,
     country: string,
-    state: StateName,
-    abbr: StateAbbreviation,
+    admin_one: AdminOneName,
+    abbr: AdminOneAbbreviation,
     county: string,
     weight: number,
     geometry: Point
@@ -19,7 +19,7 @@ const geoplaceSchema = new mongoose.Schema<IGeoplace>({
     fclass: String,
     fcode: String,
     country: String,
-    state: String,
+    admin_one: String,
     abbr: String,
     county: String,
     weight: Number,

@@ -89,7 +89,7 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
     }
     if(states){
         const split = states.split(',').map(x => x.trim())
-        filters.push({ states: { $in: split }})
+        filters.push({ admin_one: { $in: split }})
     }
     if(classifications){
         const split = classifications.split(',').map(x => x.trim())
@@ -218,8 +218,8 @@ export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbo
 
     const childrenGeometries: string[] = []
     const childrenSimplifiedGeometries: GeoJSON[] = []
-    const childrenStates: string[] = []
-    const childrenCounties: string[] = []
+    const childrenAdminOne: string[] = []
+    const childrenAdminTwo: string[] = []
 
     for(let child of childWaterbodies){
         for(let x of child.geometries){
@@ -228,11 +228,11 @@ export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbo
         for(let x of child.simplified_geometries.geometries){
             childrenSimplifiedGeometries.push(x)
         }
-        for(let x of child.states){
-            childrenStates.push(x)
+        for(let x of child.admin_one){
+            childrenAdminOne.push(x)
         }
-        for(let x of child.counties){
-            childrenCounties.push(x)
+        for(let x of child.admin_two){
+            childrenAdminTwo.push(x)
         }
     }
 
@@ -249,8 +249,8 @@ export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbo
             'simplified_geometries.geometries': { $each: childrenSimplifiedGeometries } 
         },
         $addToSet: {
-            counties: { $each: childrenCounties },
-            states: { $each: childrenStates }
+            admin_one: { $each: childrenAdminOne },
+            admin_two: { $each: childrenAdminTwo }
         }
     }, { new: true }).populate('geometries')
 
@@ -283,7 +283,7 @@ export const getWaterbodiesByName = catchAsync(async(req: Request<{},{},{},GetDu
     })
 
     if(state) pipeline.push({
-        $match: { states: state }
+        $match: { admin_one: state }
     })
 
     pipeline.push({
@@ -352,34 +352,6 @@ export const deleteWaterbody = catchAsync(async(req: Request<{},{},DeleteWaterbo
 
 
 
-
-export const getDistinctDuplicatedNames = catchAsync(async(req, res, next) => {
-
-    const waterbodies = await Waterbody.aggregate([{
-        $match: { weight: { $gte: 1.3 } }
-    },{
-        $group: {
-            _id: '$name',
-            waterbodies: {
-                $push: '$_id'
-            }
-        }
-    },{ 
-        $match: { 
-            $and: [
-                {$expr: { $gt: [{ $size: '$waterbodies'}, 1]} },
-                {_id: { $regex:  "Creek", $options: 'i' }}
-            ]
-        }
-    }])
-
-    console.log(waterbodies.length)
-
-    res.status(200).json(waterbodies.map(wb => wb._id))
-
-})
-
-
 interface GetDistinctNames {
     index: string
     weight?: string
@@ -394,7 +366,7 @@ export const getDistinctName = catchAsync(async(req: Request<{},{},{},GetDistinc
     
     let names: string[] = [];
 
-    if(state) filters.push({ states: state })
+    if(state) filters.push({ admin_one: state })
 
     if(weight) filters.push({ weight: parseFloat(weight)})
 

@@ -48,7 +48,7 @@ export const getGeoplaces = catchAsync(async(req: Request<{},{},{},GetGeoplacesQ
     }
     if(states){
         const split = states.split(',').map(x => x.trim())
-        filters.push({ states: { $in: split }})
+        filters.push({ admin_one: { $in: split }})
     }
     if(lnglat){
         const coords = lnglat.split(',').map(x => parseFloat(x))

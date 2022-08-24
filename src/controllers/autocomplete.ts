@@ -3,15 +3,10 @@ import { Request } from 'express'
 import { QueryError } from "../utils/errors/QueryError"
 import Geoplace from "../models/geoplace"
 import Waterbody from "../models/waterbody"
-import { validateState } from "../utils/stateValidation"
-import { findStateByPoint } from "../utils/findStateByPoint"
+import { validateAdminOne } from "../utils/adminOneValidation"
 import { distanceWeightFunction } from "../utils/searchWeights"
 import { validateCoords } from '../utils/coordValidation'
 import { PipelineStage } from "mongoose"
-
-type Model = 'WATERBODIES' | 'GEOPLACES'
-type Models = { waterbodies: 'WATERBODIES', geoplaces: 'GEOPLACES' }
-const models: Models = { waterbodies: 'WATERBODIES', geoplaces: 'GEOPLACES' }
 
 ////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -21,7 +16,7 @@ const models: Models = { waterbodies: 'WATERBODIES', geoplaces: 'GEOPLACES' }
 ////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////
 
-const createFilters = (value: string, model: Model ): Object[] => {
+const createFilters = (value: string): Object[] => {
 
     const filters: Object[] = []
 
@@ -32,9 +27,8 @@ const createFilters = (value: string, model: Model ): Object[] => {
             $regex: `^${parsedValue[0]}`,
             $options: 'i'
         }})
-        const validState = validateState(parsedValue[1])
-        if(validState && model === models.geoplaces) filters.push({ abbr: validState })
-        if(validState && model === models.waterbodies) filters.push({ states: validState })
+        const validAdminOne = validateAdminOne(parsedValue[1])
+        if(validAdminOne) filters.push({ admin_one: validAdminOne })
     }else if(parsedValue.length === 1){
         filters.push({ name: {
             $regex: `^${parsedValue[0]}`,
@@ -51,7 +45,7 @@ const createFilters = (value: string, model: Model ): Object[] => {
 
 
 const createWaterbodiesPipeline = (value: string): PipelineStage[] => ([
-    { $match: { $and: createFilters(value, models.waterbodies) } },
+    { $match: { $and: createFilters(value) } },
     { $addFields: { rank: '$weight' } },
     { $sort: { rank: -1 } },
     { $limit : 8 },
@@ -71,7 +65,7 @@ const createWaterbodiesGeospatialPipeline = (
         },
         distanceField: 'distanceFrom',
         maxDistance: maxDistance,
-        query: { $and: createFilters(value, models.waterbodies) },
+        query: { $and: createFilters(value) },
         spherical: false
     }},
     { $addFields: { 
@@ -95,7 +89,7 @@ const createWaterbodiesGeospatialPipeline = (
 
 
 const createGeoplacesPipeline = (value: string): PipelineStage[] => ([
-    { $match: { $and: createFilters(value, models.geoplaces) } },
+    { $match: { $and: createFilters(value) } },
     { $addFields: { rank: '$weight' } },
     { $sort: { rank: -1 } },
     { $limit : 8 },
@@ -114,7 +108,7 @@ const createGeoplacesGeospatialPipeline = (
             },
             distanceField: 'distanceFrom',
             maxDistance: maxDistance,
-            query: { $and: createFilters(value, models.geoplaces) },
+            query: { $and: createFilters(value) },
             spherical: false
         }
         },{ $addFields: { 
@@ -262,27 +256,6 @@ export const autocompleteAll = catchAsync( async (req, res) => {
 })
 
 
-
-
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////         Additional helper for calculating state coords are in          ////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-export const getStateByCoords = catchAsync( async(req, res) => {
-
-    const { lnglat } = req.query;
-
-    if(!lnglat) throw new QueryError(400, 'Invalid Request -- Coords not provided')
-
-    const coords = lnglat.split(',')
-    const state = findStateByPoint(coords)
-
-    res.status(200).json(state)
-})
 
 
 
