@@ -38,7 +38,7 @@ export const getWaterbody = catchAsync(async (req: Request<{},{},{},WaterbodyQue
     if(geometries) {
         query.select(knex.raw(
             '(select st_asgeojson(st_collect(st_transform(geom, 4326))) ' + 
-            'from geometries where waterbody = ?) as geometries', 
+            'from geometries where waterbody = ?)::json as geometries', 
             [id]
         ))
     }
@@ -169,7 +169,7 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
     if(geometries){
         query.select(knex.raw(
             '(select st_asgeojson(st_transform(st_collect(geometries.geom), 4326))' +  
-            ' from geometries where geometries.waterbody = waterbodies.id) as geometries'
+            ' from geometries where geometries.waterbody = waterbodies.id)::json as geometries'
         ))
     }
 
@@ -315,16 +315,17 @@ export const getWaterbodiesByName = catchAsync(async(req: Request<{},{},{},GetDu
 
     query.select(
         'id', 'oid', 'name', 'classification', 'country', 'ccode', 
-        'admin_one', 'admin_two', 'subregion', 'weight', knex.raw(
+        'admin_one', 'admin_two', 'subregion', 'weight', 
+        knex.raw(
             '(select st_asgeojson(st_transform(st_collect(geometries.geom), 4326))' +  
-            ' from geometries where geometries.waterbody = waterbodies.id) as geometries'
+            ' from geometries where geometries.waterbody = waterbodies.id)::json as geometries'
         ), knex.raw(
             '(select count(geometries.geom) from geometries where geometries.waterbody = ' +
-            'waterbodies.id) as totalGeometries'
+            'waterbodies.id) as total_geometries'
         )
     )
 
-    query.orderByRaw('totalGeometries desc')
+    query.orderByRaw('total_geometries desc')
     
     const waterbodies = await query;
     res.status(200).json(waterbodies)
