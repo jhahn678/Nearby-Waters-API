@@ -6,7 +6,7 @@ export interface IWaterbody {
     classification: WaterbodyClassification
     country: string
     ccode: string
-    subregion: string
+    subregion: string | null
     admin_one: string[]
     admin_two: string[]
     simplified_geometries: GeometryCollection
