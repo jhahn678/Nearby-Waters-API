@@ -96,7 +96,10 @@ export const getGeoplaces = catchAsync(async(req: Request<{},{},{},GetGeoplacesQ
             const [lng, lat] = coords;
             const point = st.transform(st.setSRID(st.point(lng, lat), 4326), 3857)
             const dist = within ? milesToMeters(within) : milesToMeters(50)
-            query.select('*', knex.raw('geom <-> ? as distance', point))
+            query.select('*',
+                knex.raw('st_asgeojson(st_transform(geom, 4326))::json as geom'),
+                knex.raw('geom <-> ? as distance', point)
+            )
             query.where(st.dwithin('geom', point, dist, false))
             query.orderBy('distance', 'asc')
         }
