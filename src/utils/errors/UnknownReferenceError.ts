@@ -5,9 +5,9 @@ export class UnknownReferenceError extends Error {
     status: number = 400
     message: string
     referenceType: ReferenceType | undefined
-    unknownReferences: string[]
+    unknownReferences: string[] | number[]
 
-    constructor(referenceType?: ReferenceType, references: string[] = []){
+    constructor(referenceType?: ReferenceType, references: string[] | number[] = []){
         super()
         if(referenceType){
             this.referenceType = referenceType
