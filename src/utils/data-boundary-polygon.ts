@@ -1,6 +1,6 @@
 import { polygon } from "@turf/helpers"
 
-export const USA_BOUNDARY_POLYGON = polygon([
+export const NA_BOUNDARY_POLYGON = polygon([
     [
       [-98.8689580784,2.8784284143],
       [-106.6577515685,13.5945207826],
