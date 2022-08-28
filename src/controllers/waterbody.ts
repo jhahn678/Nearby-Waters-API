@@ -1,11 +1,8 @@
-import Waterbody, { IWaterbody } from "../models/waterbody";
-import Geometry from '../models/geometry'
-import AccessPoint, { IAccessPoint } from "../models/accessPoint";
 import catchAsync from "../utils/catchAsync";
-import { validateCoords } from '../utils/coordValidation'
+import knex, { st } from "../config/knex";
+import { validateCoords } from '../utils/validations/coordValidation'
 import { milesToMeters } from "../utils/conversions";
 import { Request } from "express";
-import { FilterQuery, PipelineStage } from 'mongoose'
 import { distanceWeightFunction } from "../utils/searchWeights";
 import { CoordinateError } from "../utils/errors/CoordinateError";
 import { RequestError } from "../utils/errors/RequestError";
@@ -13,27 +10,35 @@ import { UnknownReferenceError } from "../utils/errors/UnknownReferenceError";
 import { GeoJSON } from 'geojson'
 import { QueryError } from "../utils/errors/QueryError";
 import { AccessPointCreationError } from '../utils/errors/AccessPointCreationError'
-import { validateAccessPointType } from "../utils/accessPointValidations";
-import { validateAdminOne } from "../utils/adminOneValidation";
+import { validateAccessPointType } from "../utils/validations/accessPointValidations";
+import { validateAdminOne } from "../utils/validations/validateAdminOne";
+import { validateCountry } from '../utils/validations/validateCountry'
+import { validateSubregion } from "../utils/validations/validateSubregion";
+import { validateLimitInput, validatePageInput } from "../utils/validations/validatePagination";
+import { INewAccessPoint } from "../types/AccessPoint";
 
 
 interface WaterbodyQuery {
-    _id: string,
+    id: number,
     geometries?: string | boolean
 }
 
 export const getWaterbody = catchAsync(async (req: Request<{},{},{},WaterbodyQuery>, res, next) => {
 
-    const { _id, geometries } = req.query;
+    const { id, geometries } = req.query;
+    if(!id) throw new QueryError('ID_REQUIRED')
 
-    if(!_id) res.status(400).json({ error: 'No _id provided'})
+    const waterbody = await knex('waterbodies').where({ id }).first()
+    if(!waterbody) throw new UnknownReferenceError('WATERBODY', [id])
+    
+    if(geometries) {
+        const results = await knex('geometries').select('*')
+            .select({ geom: st.asGeoJSON(st.transform('geom', 4326)) })
+            .where('waterbody', id)
 
-    if(geometries){
-        const result = await Waterbody.findById(_id).populate('geometries').lean()
-        res.status(200).json(result)
+        res.status(200).json({ ...waterbody, geometries: results })
     }else{
-        const result = await Waterbody.findById(_id).lean()
-        res.status(200).json(result)
+        res.status(200).json(waterbody)
     }
 })
 
@@ -41,77 +46,96 @@ export const getWaterbody = catchAsync(async (req: Request<{},{},{},WaterbodyQue
 type Sort = { rank: -1 } | { distanceFrom: 1 } 
 
 interface WaterbodiesQuery {
+    /** case-insensitive value */
     value?: string
-    /**
-     * Comma seperated
-     * ex: pond,lake,river
-     */
+    /** Comma seperated classifications */
     classifications?: string
-    /**
-     * Comma seperated
-     * ex: PA,WV,MD
-     */
+    /** Comma seperated admin_one values -- precedence over states */
+    admin_one?: string
+    /** Comma seperated admin_one values */
     states?: string
+    /** minimum search weight returned*/
     minWeight?: string
+    /** maximum search weight returned */
     maxWeight?: string
+    /** two letter country code -- precedence over country*/
     ccode?: string
+    /** country name */
+    country?: string,
+    /** subregion name -- only valid for US */
     subregion?: string
-    geometries?: string | boolean,
-    /**
-     * Comma seperated -- longitude, latitude
-     */
+    /** Boolean value to include geometries or not @default false*/
+    geometries: string | boolean,
+    /**Comma seperated longitude, latitude */
     lnglat?: string,
-    /**
-     * @default 50
-     * Number of miles
-     */
-    within?: string | number
-    page: string
-    limit: string
-    sort?: 'distance' | 'rank'
+    /** Number of miles to search within @default 50 */
+    within: string | number
+    /** Method to sort by  @default rank */
+    sort: 'distance' | 'rank'
+    /** page number @default 1 */
+    page: string | number
+    /** page size @default 50 */
+    limit: string | number
 }
 
 
 export const getWaterbodies = catchAsync(async(req: Request<{},{},{},WaterbodiesQuery>, res, next) => {
     const { 
-        value, classifications, 
-        states, ccode, subregion, 
-        minWeight, maxWeight,
-        geometries, lnglat, within,
-        page, limit, sort 
+        value, classifications, admin_one, states, 
+        minWeight, maxWeight, ccode, country, subregion, lnglat,
+        geometries=false, within=50, sort='rank', page=1, limit=50
     } = req.query;
 
-    const filters:  FilterQuery<IWaterbody>[] = []
+    let isUsingDistance = false;
 
-    const pipeline: PipelineStage[] = []
+    const query = knex('waterbodies')
 
     if(value){
-        filters.push({ name: { $regex: `^${value}`, options: 'i' }})
+        query.whereILike("name", value + '%')
     }
-    if(states){
-        const split = states.split(',').map(x => x.trim())
-        filters.push({ admin_one: { $in: split }})
-    }
+
     if(classifications){
-        const split = classifications.split(',').map(x => x.trim())
-        filters.push({ classification: { $in: split }})
+        const split = classifications.split(',')
+            .map(x => x.trim().toLowerCase())
+        query.whereIn('classification', split)
     }
-    if(minWeight && maxWeight){
-        filters.push({ weight: { 
-            $and: [{ $gte: parseFloat(minWeight) }, { $lte: parseFloat(maxWeight) }] 
-        }})
+
+    if(admin_one){
+        const split = admin_one.split(',')
+            .map(x => validateAdminOne(x.trim()))
+            .filter(x => x !== null)
+        if(split.length > 0){
+            query.whereRaw(`admin_one && array[${split.map(() => '?').join(',')}]::varchar[]`, split)
+        }
+    }else if(states){
+        const split = states.split(',')
+            .map(x => validateAdminOne(x.trim()))
+            .filter(x => x !== null)
+        if(split.length > 0){
+            query.whereRaw(`admin_one && array[${split.map(() => '?').join(',')}]::varchar[]`, split)
+        }
     }
-    else if(maxWeight){
-        filters.push({ weight: { $lte: parseFloat(maxWeight) }})
+
+    if(maxWeight){
+        query.where('weight', '<=', parseFloat(maxWeight))
     }
-    else if(minWeight){
-        filters.push({ weight: { $gte: parseFloat(minWeight) }})
+    if(minWeight){
+        query.where('weight', '>=', parseFloat(minWeight))
     }
+
     if(ccode){
-        filters.push({ ccode: ccode })
+        const valid = validateCountry(ccode)
+        if(!valid) throw new QueryError("INVALID_COUNTRY", ccode)
+        query.where('ccode', valid)
+    }else if(country){
+        const valid = validateCountry(country)
+        if(!valid) throw new QueryError("INVALID_COUNTRY", country)
+        query.where('ccode', valid)
     }
+
     if(subregion){
-        filters.push({ subregion: subregion })
+        const valid = validateSubregion(subregion)
+        query.where('subregion', valid)
     }
 
     if(lnglat){
@@ -119,83 +143,61 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
         if(!validateCoords(coords)){
             throw new CoordinateError(400, 'Provided coordinates are not valid')
         }
-        pipeline.push(
-            { $geoNear: { 
-                near: { type: "Point", coordinates: [coords[0], coords[1]] },
-                distanceField: 'distanceFrom',
-                query: { $and: filters.length > 0 ? filters : [{}] },
-                maxDistance: within ? milesToMeters(within) : 80000,
-                spherical: false
-            }},
-            { $addFields: { 
-                rank: { $function: {
-                    body: within ? 
-                        distanceWeightFunction(milesToMeters(within)) : 
-                        distanceWeightFunction(80000),
-                    args: [ '$distanceFrom', '$weight'],
-                    lang: 'js'
-                }}
-            }}
+        isUsingDistance = true;
+        const [lng, lat] = coords; 
+        const point = st.transform(st.setSRID(st.point(lng, lat), 4326), 3857)
+        const dist = within ? milesToMeters(within) : 80000 //~50 miles
+        query.select('id', 'name', 'classification', 'country', 'ccode', 
+            'admin_one', 'admin_two', 'subregion', 'weight', 'oid', 
+            knex.raw('simplified_geometries <-> ? as distance', point), 
+            knex.raw('rank_result(simplified_geometries <-> ?, weight, ?) as rank', [point, dist])
         )
+        query.where(st.dwithin('simplified_geometries', point, dist, false))
     }else{
-        pipeline.push( 
-            { $match: { $and: filters.length > 0 ? filters : [{}] } },
-            { $addFields: { rank: '$weight', distanceFrom: 0 } },
+        query.select('id', 'name', 'classification', 'country', 'ccode', 'admin_one', 
+            'admin_two', 'subregion', 'weight', 'oid', { rank: 'weight' }
         )
     }
-
-    const projection: PipelineStage.FacetPipelineStage[] = []
 
     if(geometries){
-        projection.push({
-            $lookup: {
-                from: 'geometries',
-                localField: 'geometries',
-                foreignField: '_id',
-                as: 'geometries'
-            }
-        })
+        query.select(knex.raw(
+            '(select st_asgeojson(st_transform(st_collect(geometries.geom), 4326))' +  
+            ' from geometries where geometries.waterbody = waterbodies.id) as geometries'
+        ))
     }
 
-    projection.push({ $project: { simplified_geometries: 0 } })
+    const vLimit = validateLimitInput(limit);
+    const vPage = validatePageInput(page);
 
-    let sortMethod: Sort = { rank: -1 }
-    
-    if(sort && sort === 'distance'){
-        sortMethod = { distanceFrom: 1 }
+    query.limit(vLimit + 1)
+    query.offset((vPage - 1) * vLimit)
+
+    if(sort && sort === 'distance' && isUsingDistance === true){
+        query.orderBy('distance', 'asc')
+    }else{
+        query.orderBy('rank', 'desc')
     }
 
-    pipeline.push({ 
-        $facet: {
-            metadata: [ 
-                { $count: "total" }, 
-                { $addFields: { page: parseInt(page) || 1, limit: parseInt(limit) || 50 } } 
-            ],
-            data: [ 
-                { $sort: sortMethod },
-                { $skip: (parseInt(limit) * (parseInt(page) - 1)) || 0 }, 
-                { $limit: parseInt(limit) || 50 },
-                ...projection
-            ]
-        }
-    }, { $unwind: { path: '$metadata' } })
-    
+    const results = await query;
+    const hasNext = results.length === (vLimit + 1)
 
-    const result = await Waterbody.aggregate(pipeline)
-
-    if(result.length === 0){
+    if(results.length === 0){
         res.status(200).json({
             metadata: {
-                total: 0, 
-                page: 1, 
-                limit: parseInt(limit) || 50 
+                next: false, 
+                page: vPage, 
+                limit: vLimit
             },
             data: []
         })
     }else{
         res.status(200).json({
-            metadata: result[0].metadata,
-            data: result[0].data
+            metadata: {
+                next: hasNext,
+                page: vPage,
+                limit: vLimit
+            },
+            data: hasNext ? results.slice(0,-1) : results
         })
     }
 
@@ -203,8 +205,8 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
 
 
 interface MergeWaterbodies {
-    parent: string,
-    children: string[]
+    parent: number,
+    children: number[]
 }
 
 export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbodies>, res, next) => {
@@ -213,53 +215,62 @@ export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbo
     if(!parent) throw new RequestError(400, 'Parent waterbody _id is required')
     if(children.length === 0) throw new RequestError(400, 'Children waterbody(s) are required')
 
-    const childWaterbodies = await Waterbody.find({ _id: { $in: children }})
-
+    const childWaterbodies = await knex('waterbodies').whereIn('id', children)
     if(childWaterbodies.length === 0) throw new UnknownReferenceError('WATERBODY', children)
-
-    const childrenGeometries: string[] = []
-    const childrenSimplifiedGeometries: GeoJSON[] = []
-    const childrenAdminOne: string[] = []
-    const childrenAdminTwo: string[] = []
-
-    for(let child of childWaterbodies){
-        for(let x of child.geometries){
-            childrenGeometries.push(x)
-        }
-        for(let x of child.simplified_geometries.geometries){
-            childrenSimplifiedGeometries.push(x)
-        }
-        for(let x of child.admin_one){
-            childrenAdminOne.push(x)
-        }
-        for(let x of child.admin_two){
-            childrenAdminTwo.push(x)
-        }
+    
+    const adminOneSet = new Set()
+    const adminTwoSet = new Set()
+    for(let x of childWaterbodies){
+        x.admin_one.forEach(x => adminOneSet.add(x))
+        x.admin_two.forEach(x => adminTwoSet.add(x))
     }
 
-    const geometries = await Geometry.updateMany(
-        { _id: { $in: childrenGeometries }}, 
-        { $set: { parent_waterbody: parent } }
+    const adminOneValues = Array.from(adminOneSet)
+    const adminOneVars = adminOneValues.map(() => '?').join(',')
+    const adminOneRaw = knex.raw(
+        `array(select distinct unnest(admin_one || array[${adminOneVars}]::varchar[]))`, 
+        adminOneValues
     )
 
-    await Waterbody.deleteMany({ _id: { $in: children } })
+    const adminTwoValues = Array.from(adminTwoSet)
+    const adminTwoVars = adminTwoValues.map(() => '?').join(',')
+    const adminTwoRaw = knex.raw(
+        `array(select distinct unnest(admin_two || array[${adminTwoVars}]::varchar[]))`, 
+        adminTwoValues
+    )
 
-    const waterbody = await Waterbody.findByIdAndUpdate(parent, {
-        $push: { 
-            geometries: { $each: childrenGeometries },
-            'simplified_geometries.geometries': { $each: childrenSimplifiedGeometries } 
-        },
-        $addToSet: {
-            admin_one: { $each: childrenAdminOne },
-            admin_two: { $each: childrenAdminTwo }
-        }
-    }, { new: true }).populate('geometries')
+    const geometries = await knex('geometries')
+        .whereIn('waterbody', children)
+        .update({ waterbody: parent })
+
+    const waterbody = await knex('waterbodies')
+        .where('id', parent)
+        .update({ admin_one: adminOneRaw, admin_two: adminTwoRaw })
+        .returning('*')
+
+    let simplified: any = null;
+    let number = 16;
+
+    while(simplified === null){
+        const { rows } = await knex.raw(
+            'update waterbodies set "simplified_geometries" = ' +
+            '(select st_collect(st_simplify(geom,?)) from geometries where "waterbody" = ?) ' +
+            'where "id" = ? ' + 
+            'returning st_astext(st_transform("simplified_geometries", 4326)) as simplified_geometries',
+            [number, parent, parent]
+        )
+        number /= 2;
+        simplified = rows[0].simplified_geometries
+    } 
+
+    const deleted = await knex('waterbodies')
+        .whereIn('id', children).del()
 
 
     res.status(200).json({
-        waterbody, 
-        updated_geometries: geometries.modifiedCount, 
-        deleted_waterbodies: childWaterbodies.length 
+        waterbody: waterbody[0],
+        updated_geometries: geometries, 
+        deleted_waterbodies: deleted 
     })
 
 }) 
@@ -277,127 +288,88 @@ export const getWaterbodiesByName = catchAsync(async(req: Request<{},{},{},GetDu
     
     const { name, classification, admin_one } = req.query;
 
-    const pipeline: PipelineStage[] = []
+    if(!name) throw new QueryError('NAME_REQUIRED')
+    
+    const query = knex('waterbodies').where('name', name)
 
     if(classification){
-        const classifications = classification.split(',')
-        pipeline.push({
-            $match: { classification: { $in: classifications } }
-        })
+        const split = classification.split(',')
+            .map(x => x.trim().toLowerCase())
+        query.whereIn('classification', split)
     }
 
     if(admin_one){
-        const valid = validateAdminOne(admin_one)
-        if(valid) pipeline.push({ 
-            $match: { admin_one: valid }
-        })
+        const split = admin_one.split(',')
+            .map(x => validateAdminOne(x.trim()))
+            .filter(x => x !== null)
+        query.whereRaw(`admin_one && array[${split.map(() => '?').join(',')}]::varchar[]`, split)
     }
 
-    pipeline.push({
-        $group: {
-            _id: '$name',
-            waterbodies: {
-                $push: '$_id'
-            }
-        }
-    }, {
-        $match: {  _id: name }
-    }, {
-        $lookup: {
-            from:'waterbodies',
-            localField: 'waterbodies',
-            foreignField: '_id',
-            as: 'waterbodies'
-        }
-    }, {
-        $unwind: { path: '$waterbodies' }
-    }, {
-        $replaceRoot: { newRoot: '$waterbodies' }
-    }, {
-        $lookup: {
-            from: 'geometries',
-            localField: 'geometries',
-            foreignField: '_id',
-            as: 'geometries'
-        }
-    }, {
-        $addFields: {
-            totalGeometries: { $size: '$geometries' }
-        }
-    }, {
-        $sort: { totalGeometries: -1 }
-    })
 
-    const waterbodies = await Waterbody.aggregate(pipeline)
+    query.select(
+        'id', 'oid', 'name', 'classification', 'country', 'ccode', 
+        'admin_one', 'admin_two', 'subregion', 'weight', knex.raw(
+            '(select st_asgeojson(st_transform(st_collect(geometries.geom), 4326))' +  
+            ' from geometries where geometries.waterbody = waterbodies.id) as geometries'
+        ), knex.raw(
+            '(select count(geometries.geom) from geometries where geometries.waterbody = ' +
+            'waterbodies.id) as totalGeometries'
+        )
+    )
 
+    query.orderByRaw('totalGeometries desc')
+    
+    const waterbodies = await query;
     res.status(200).json(waterbodies)
 })
 
 
 
 interface DeleteWaterbodyReqBody {
-    _id: string
+    id: number
 }
 
 export const deleteWaterbody = catchAsync(async(req: Request<{},{},DeleteWaterbodyReqBody>, res, next) => {
 
-    const { _id } = req.body;
+    const { id } = req.body;
+    if(!id) throw new RequestError(400, 'Waterbody _id is required')
 
-    if(!_id) throw new RequestError(400, 'Waterbody _id is required')
+    const deleted = await knex('waterbodies').where({ id }).del()
+    if(deleted === 0) throw new ReferenceError('Waterbody does not exist')
 
-    const deleted = await Waterbody.findByIdAndDelete(_id)
-
-    if(!deleted) throw new ReferenceError('Waterbody does not exist')
-
-    const result = await Geometry.deleteMany({ _id: { $in: deleted.geometries } })
-
-    res.status(204).json({
-        deleted_waterbodies: 1,
-        deleted_geometries: result.deletedCount
-    })
+    res.status(204).json({ deleteCount: deleted })
 })
 
 
 
-interface GetDistinctNames {
-    index: string
-    weight?: string
-    state?: string
-}
+// interface GetDistinctNames {
+//     index: string
+//     weight?: string
+//     state?: string
+//     admin_one?: string
+// }
 
-export const getDistinctName = catchAsync(async(req: Request<{},{},{},GetDistinctNames>, res, next) => {
-    
-    const { state, weight, index } = req.query;
-
-    let filters: FilterQuery<IWaterbody>[] = []
-    
-    let names: string[] = [];
-
-    if(state) filters.push({ admin_one: state })
-
-    if(weight) filters.push({ weight: parseFloat(weight)})
-
-    if(filters.length > 0){
-        names = await Waterbody.distinct('name', { $and: filters })
-    }else{
-        names = await Waterbody.distinct('name')
-    }
-    
-    
-    const x = parseInt(index);
-
-    const nameSlice = names.slice(x, (x + 10))
-
-
-    res.status(200).json({
-        index: x,
-        position: x + 1,
-        total: names.length,
-        next: x + 10 < names.length,
-        values: nameSlice
-    })
-
-})
+// export const getDistinctName = catchAsync(async(req: Request<{},{},{},GetDistinctNames>, res, next) => {
+//     const { state, weight, index } = req.query;
+//     let filters: FilterQuery<IWaterbody>[] = []
+//     let names: string[] = [];
+//     if(state) filters.push({ admin_one: state })
+//     if(weight) filters.push({ weight: parseFloat(weight)})
+//     if(filters.length > 0){
+//         names = await Waterbody.distinct('name', { $and: filters })
+//     }else{
+//         names = await Waterbody.distinct('name')
+//     }
+//     const x = parseInt(index);
+//     const nameSlice = names.slice(x, (x + 10))
+//     res.status(200).json({
+//         index: x,
+//         position: x + 1,
+//         total: names.length,
+//         next: x + 10 < names.length,
+//         values: nameSlice
+//     })
+// })
 
 
 
@@ -408,24 +380,25 @@ interface NearestWaterbodyQuery {
 }
 
 export const getNearestWaterbodies = catchAsync(async (req: Request<{},{},{},NearestWaterbodyQuery>, res, next) => {
-    const { lnglat } = req.query;
 
-    if(!lnglat) throw new QueryError(400, 'lnglat is required')
+    const { lnglat } = req.query;
+    if(!lnglat) throw new QueryError('COORDS_REQUIRED')
 
     const coordinates = lnglat.split(',').map(x => parseFloat(x))
     if(!validateCoords(coordinates)){
         throw new CoordinateError(400, 'Provided coordinates are not valid')
     }
+    
+    const [lng, lat] = coordinates;
+    const point = st.transform(st.setSRID(st.makePoint(lng, lat), 4326), 3857)
+    const dist = knex.raw('(simplified_geometries <-> ?) as distance', [point])
 
-    const waterbodies = await Waterbody.find({ 
-        simplified_geometries: { 
-            $near: {
-                $geometry: { type: 'Point', coordinates },
-                $minDistance: 0,
-                $maxDistance: 10000
-            }
-        }
-    }).limit(2)
+    const waterbodies = await knex('waterbodies')
+        .select('id', 'name', 'classification', dist)
+        .where(st.dwithin('simplified_geometries', point, 10000, false))
+        .orderByRaw('distance asc')
+        .limit(3)
+
 
     res.status(200).json(waterbodies)
 })
@@ -436,10 +409,10 @@ export const getNearestWaterbodies = catchAsync(async (req: Request<{},{},{},Nea
 interface NewAccessPointReq {
     name: string
     description?: string
-    accessType: 'PARKING_LOT' | 'PULLOFF' | 'WALK_IN'
+    accessType: 'PARKING_LOT' | 'PULL_OFF' | 'WALK_IN'
     restrooms?: boolean
     boatLaunch?: boolean
-    waterbody: string
+    waterbody: number
     coordinates: [Lng: number, Lat: number]
 }
 
@@ -448,7 +421,7 @@ export const addAccessPoint = catchAsync(async(req: Request<{},{},NewAccessPoint
     const { 
         name, 
         description, 
-        accessType, 
+        accessType,
         restrooms, 
         boatLaunch, 
         waterbody, 
@@ -459,30 +432,28 @@ export const addAccessPoint = catchAsync(async(req: Request<{},{},NewAccessPoint
     if(!accessType) throw new AccessPointCreationError('ACCESS_TYPE_NOT_PROVIDED')
     if(!validateAccessPointType(accessType)) throw new AccessPointCreationError('ACCESS_TYPE_NOT_VALID')
     if(!waterbody) throw new AccessPointCreationError('WATERBODY_NOT_PROVIDED')
-    if(!(await Waterbody.findById(waterbody))) throw new UnknownReferenceError('WATERBODY', [waterbody])
+    const validated = await knex('waterbodies').where({ id: waterbody }).first()
+    if(!validated) throw new UnknownReferenceError('WATERBODY')
     if(!coordinates) throw new AccessPointCreationError('COORDINATES_NOT_PROVIDED')
     if(!validateCoords(coordinates)) throw new CoordinateError(400, 'Provided coordinates are not valid')
 
-    const accessPoint: IAccessPoint = {
+    const [lng, lat] = coordinates;
+    const point = st.transform(st.setSRID(st.makePoint(lng, lat), 4326), 3857)
+
+    const newAccessPoint: INewAccessPoint = {
         name,
         accessType,
+        // user,
         waterbody,
-        restrooms: false,
-        boatLaunch: false,
-        geometry: {
-            type: 'Point',
-            coordinates
-        }
+        geom: point
     }
 
-    if(description && typeof description === 'string') accessPoint.description = description;
-    if(restrooms && typeof restrooms === 'boolean') accessPoint.restrooms = restrooms;
-    if(boatLaunch && typeof boatLaunch === 'boolean') accessPoint.boatLaunch = boatLaunch;
+    if(description && typeof description === 'string') newAccessPoint.description = description;
+    if(restrooms && typeof restrooms === 'boolean') newAccessPoint.restrooms = restrooms;
+    if(boatLaunch && typeof boatLaunch === 'boolean') newAccessPoint.boatLaunch = boatLaunch;
 
-    const newAccessPoint = new AccessPoint(accessPoint)
-
-    const saved = await newAccessPoint.save()
-
+    const saved = await knex('accessPoints').insert(newAccessPoint).returning('*')
+    
     res.status(200).json(saved)
 })
 

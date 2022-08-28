@@ -1,263 +1,161 @@
 import catchAsync from "../utils/catchAsync"
+import knex, { st } from "../config/knex"
 import { Request } from 'express'
 import { QueryError } from "../utils/errors/QueryError"
-import Geoplace from "../models/geoplace"
-import Waterbody, { IWaterbody } from "../models/waterbody"
-import { validateAdminOne } from "../utils/adminOneValidation"
-import { distanceWeightFunction } from "../utils/searchWeights"
-import { validateCoords } from '../utils/coordValidation'
-import { FilterQuery, PipelineStage } from "mongoose"
+import { validateAdminOne } from "../utils/validations/validateAdminOne"
+import { validateCoords } from "../utils/validations/coordValidation"
 
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-///////////          Aggregation pipeline and filter helpers                    ////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
 
-const createFilters = (value: string): Object[] => {
-
-    const filters: Object[] = []
-
-    const parsedValue = value.split(',').map(x => x.trim())
-
-    if(parsedValue.length === 2){
-        filters.push({ name: {
-            $regex: `^${parsedValue[0]}`,
-            $options: 'i'
-        }})
-        const validAdminOne = validateAdminOne(parsedValue[1])
-        if(validAdminOne) filters.push({ admin_one: validAdminOne })
-    }else if(parsedValue.length === 1){
-        filters.push({ name: {
-            $regex: `^${parsedValue[0]}`,
-            $options: 'i'
-        }})
-
-    }else{
-        throw new QueryError(400, 'Invalid request --- Query value must adhere to pattern: "Place", "State/Province/Municipality"') 
-    }
-
-    return filters
+interface AutocompleteQuery {
+    value: string,
+    lnglat?: string
 }
 
-
-
-const createWaterbodiesPipeline = (value: string): PipelineStage[] => ([
-    { $match: { $and: createFilters(value) } },
-    { $addFields: { rank: '$weight' } },
-    { $sort: { rank: -1 } },
-    { $limit : 8 },
-    { $project: { simplified_geometries: 0 }},
-    { $addFields: { type: 'WATERBODY' }},
-])
-
-
-
-const createWaterbodiesGeospatialPipeline = (
-    value: string, coords: [number, number], maxDistance: number = 300000
-): PipelineStage[] => ([{ 
-    $geoNear: { 
-        near: {
-            type: 'Point',
-            coordinates: coords
-        },
-        distanceField: 'distanceFrom',
-        maxDistance: maxDistance,
-        query: { $and: createFilters(value) },
-        spherical: false
-    }},
-    { $addFields: { 
-        rank: { 
-            $function: {
-                body: distanceWeightFunction(maxDistance),
-                args: [
-                    '$distanceFrom',
-                    '$weight'
-                ],
-                lang: 'js'
-            }
-        }}
-    },
-    { $sort: { rank: -1 } },
-    { $limit : 8 },
-    { $project: { simplified_geometries: 0 }},
-    { $addFields: { type: 'WATERBODY' }}
-])
-
-
-
-const createGeoplacesPipeline = (value: string): PipelineStage[] => ([
-    { $match: { $and: createFilters(value) } },
-    { $addFields: { rank: '$weight' } },
-    { $sort: { rank: -1 } },
-    { $limit : 8 },
-    { $addFields: { type: 'GEOPLACE', }}
-])
-
-
-
-const createGeoplacesGeospatialPipeline = (
-    value: string, coords: [number, number], maxDistance: number = 500000
-): PipelineStage[] => ([{ 
-        $geoNear: { 
-            near: {
-                type: 'Point',
-                coordinates: coords
-            },
-            distanceField: 'distanceFrom',
-            maxDistance: maxDistance,
-            query: { $and: createFilters(value) },
-            spherical: false
-        }
-        },{ $addFields: { 
-            rank: { 
-                $function: {
-                    body: distanceWeightFunction(maxDistance),
-                    args: [
-                        '$distanceFrom',
-                        '$weight'
-                    ],
-                    lang: 'js'
-                }
-            }}
-        },
-        { $sort: { rank: -1 }},
-        { $limit: 5 },
-        { $addFields: { type: 'GEOPLACE', }}
-        
-])
-
-
-
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-///////////                    Autocomplete controllers                       //////////
-///////////          Places only, waterbodies only, and combined              //////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////a
-
-
-
-export const autocompletePlaces = catchAsync(async (req, res) => {
+export const autocompletePlaces = catchAsync(async (req: Request<{},{},{},AutocompleteQuery>, res) => {
 
     const { value, lnglat } = req.query;
+    if(!value) throw new QueryError('VALUE_REQUIRED')
 
-    let pipeline: PipelineStage[] = []
+    const query = knex('geoplaces')
 
-    if(lnglat && value.length <= 8){
+    const parsedValue = value.split(',').map(x => x.trim())
+    const [ name, adminOne ] = parsedValue;
+    query.whereILike('name', (name + '%'))
+
+    if(parsedValue.length > 1){
+        const valid = validateAdminOne(adminOne);
+        if(valid) query.whereRaw('? = any(admin_one)', [valid])
+    }
+
+    if(lnglat && !adminOne && name.length < 8){
         const coords = lnglat.split(',').map(x => parseFloat(x))
         if(validateCoords(coords)){
-            pipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
-        }else{
-            pipeline = [ ...createGeoplacesPipeline(value)]
+            const [lng, lat] = coords;
+            const point = st.transform(st.setSRID(st.point(lng, lat), 4326), 3857)
+            query.select('*', 
+                knex.raw("'GEOPLACE' as type"),
+                knex.raw('rank_result(geom <-> ?, weight, ?) as rank', [point, 300000])
+            )
+            query.where(st.dwithin('geom', point, 300000))
         }
-        
+    }else{
+        query.select('*', knex.raw('weight as rank'))
     }
 
-    if(!lnglat || value.length > 8){
+    query.orderByRaw('rank desc')
+    query.limit(8)
 
-        pipeline = [ ...createGeoplacesPipeline(value)]
+    const results = await query;
+    res.status(200).json(results)
+})
+
+
+
+export const autocompleteWaterbodies = catchAsync(async(req: Request<{},{},{},AutocompleteQuery>, res) => {
+
+    const { value, lnglat } = req.query;
+    if(!value) throw new QueryError('VALUE_REQUIRED')
+
+    const query = knex('waterbodies')
+
+    const parsedValue = value.split(',').map(x => x.trim())
+    const [ name, adminOne ] = parsedValue;
+    query.whereILike('name', (name + '%'))
+
+    if(parsedValue.length > 1){
+        const valid = validateAdminOne(adminOne);
+        if(valid) query.whereRaw('? = any(admin_one)', [valid])
     }
 
-    const results = await Geoplace.aggregate(pipeline)
-    
+    if(lnglat && !adminOne && name.length < 8){
+        const coords = lnglat.split(',').map(x => parseFloat(x))
+        if(validateCoords(coords)){
+            const [lng, lat] = coords;
+            const point = st.transform(st.setSRID(st.point(lng, lat), 4326), 3857)
+            query.select(
+                'id', 'name', 'classification', 'admin_one', 
+                'admin_two', 'country', 'ccode', 'subregion', 'weight', 
+                knex.raw("'WATERBODY' as type"),
+                knex.raw('rank_result(geom <-> ?, weight, ?) as rank', [point, 300000])
+            )
+            query.where(st.dwithin('geom', point, 300000))
+        }
+    }else{
+        query.select('*', knex.raw('weight as rank'))
+    }
+
+    query.orderByRaw('rank desc')
+    query.limit(8)
+
+    const results = await query;
     res.status(200).json(results)
 
 })
 
 
 
-export const autocompleteWaterbodies = catchAsync( async (req, res) => {
+export const autocompleteAll = catchAsync(async (req: Request<{},{},{},AutocompleteQuery>, res) => {
 
     const { value, lnglat } = req.query;
+    if(!value) throw new QueryError('VALUE_REQUIRED')
 
-    let pipeline: PipelineStage[] = []
+    const waterbodies = knex('waterbodies')
+    const geoplaces = knex('geoplaces')
 
-    if(lnglat && value.length <= 8){
-
+    const parsedValue = value.split(',').map(x => x.trim())
+    const [ name, adminOne ] = parsedValue;
+    waterbodies.whereILike('name', (name + '%'))
+    geoplaces.whereILike('name', (name + '%'))
+    
+    if(lnglat && !adminOne && name.length < 8){
         const coords = lnglat.split(',').map(x => parseFloat(x))
         if(validateCoords(coords)){
-            pipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
-        }else{
-            pipeline = [ ...createWaterbodiesPipeline(value) ]
+            const [lng, lat] = coords;
+            const point = st.transform(st.setSRID(st.point(lng, lat), 4326), 3857)
+            waterbodies.select(
+                'id', 'name', 'classification', 'admin_one', 
+                'admin_two', 'country', 'ccode', 'subregion', 'weight', 
+                knex.raw("'WATERBODY' as type"),
+                knex.raw('rank_result(simplified_geometries <-> ?, weight, ?) as rank', [point, 300000])
+            )
+            geoplaces.select('*', 
+                knex.raw("'GEOPLACE' as type"),
+                knex.raw('st_asgeojson(st_transform(geom, 4326)) as geom'),
+                knex.raw('rank_result(geom <-> ?, weight, ?) as rank', [point, 300000])
+            )
+            geoplaces.where(st.dwithin('geom', point, 300000))
+            waterbodies.where(st.dwithin('simplified_geometries', point, 300000))
         }
-
-        const results = await Waterbody.aggregate(pipeline)
-
-        res.status(200).json(results)
+    }else{
+        waterbodies.select(
+            'id', 'name', 'classification', 'admin_one', 
+            'admin_two', 'country', 'ccode', 'subregion', 'weight', 
+            knex.raw("'WATERBODY' as type"),
+            knex.raw('weight as rank')
+        )
+        geoplaces.select('*', 
+            knex.raw('weight as rank'))
+            knex.raw("'GEOPLACE' as type"),
+            knex.raw('st_asgeojson(st_transform(geom, 4326)) as geom'
+        )
     }
 
+    waterbodies.orderByRaw('rank desc')
+    geoplaces.orderByRaw('rank desc')
+    waterbodies.limit(8)
+    geoplaces.limit(8)
 
+    const waterbodyResults = await waterbodies;
+    const geoplaceResults = await geoplaces;
 
-    if(!lnglat || value.length > 8){
+    const sorted = [
+        ...waterbodyResults, 
+        ...geoplaceResults
+        //@ts-ignore
+    ].sort((x,y) => y.rank - x.rank)
 
-        const pipeline = [ ...createWaterbodiesPipeline(value) ]
-
-        const results = await Waterbody.aggregate(pipeline)
-
-        res.status(200).json(results)
-    }
-
+    res.status(200).json(sorted)
 })
-
-
-
-export const autocompleteAll = catchAsync( async (req, res) => {
-
-    const { value, lnglat } = req.query;
-
-    let waterbodiesPipeline: PipelineStage[] = []
-    let geoplacesPipeline: PipelineStage[] = []
-
-    if(lnglat && value.length <= 8){
-
-        const coords = lnglat.split(',').map(x => parseFloat(x))
-
-        if(validateCoords(coords)){
-            waterbodiesPipeline = [ ...createWaterbodiesGeospatialPipeline(value, coords) ]
-            geoplacesPipeline = [ ...createGeoplacesGeospatialPipeline(value, coords) ]
-        }else{
-            waterbodiesPipeline = [ ...createWaterbodiesPipeline(value) ]
-            geoplacesPipeline = [ ...createGeoplacesPipeline(value) ]
-        }
-
-        const resultsWaterbody = await Waterbody.aggregate(waterbodiesPipeline)
-        const resultsGeoplace = await Geoplace.aggregate(geoplacesPipeline)
-
-        const results = [
-            ...resultsGeoplace,
-            ...resultsWaterbody
-        ].sort((x, y) => y.rank - x.rank)
-
-        res.status(200).json(results)
-        
-    }
-
-    if(!lnglat || value.length > 8){
-
-        waterbodiesPipeline = [ ...createWaterbodiesPipeline(value) ]
-        geoplacesPipeline = [ ...createGeoplacesPipeline(value) ]
-
-        const resultsWaterbody = await Waterbody.aggregate(waterbodiesPipeline)
-        const resultsGeoplace = await Geoplace.aggregate(geoplacesPipeline)
-
-        const results = [
-            ...resultsGeoplace,
-            ...resultsWaterbody
-        ].sort((x, y) => y.rank - x.rank)
-
-        res.status(200).json(results)
-    }
-
-})
-
-
-
-
 
 
 
@@ -271,62 +169,31 @@ export const autocompleteDistinctName = catchAsync(async(req: Request<{},{},{},D
     
     const { value, classifications, admin_one } = req.query;
 
-    const filters:  FilterQuery<IWaterbody>[] = [
-        { name: { $regex: `^${value}`, $options: 'i' } }
-    ]
+    const query = knex('waterbodies').distinct('name')
+
+    if(value) query.whereILike('name',(value + '%'))
 
     if(classifications){
-        filters.push({ classification: { $in: classifications.split(',') }})
+        const split = classifications
+            .split(',')
+            .map(x => x.trim().toLowerCase())
+        query.whereIn('classification', split)
     }
 
     if(admin_one){
-        const valid = validateAdminOne(admin_one)
-        if(valid) filters.push({ admin_one: valid })
+        const valid = admin_one.split(',')
+            .map(x => validateAdminOne(x.trim()))
+            .filter(x => x !== null)
+        if(valid.length > 0){
+            query.whereRaw(`admin_one && array[${valid.map(() => '?').join(',')}]::varchar[]`, valid)
+        }
     }
 
-    const results = await Waterbody.distinct('name', { 
-        $and: filters
-    })
+    const results = await query;
 
-    res.status(200).json(results)
+    res.status(200).json(results.map(x => x.name))
 })
 
 
-
-
-
-
-
-
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-//////////////             Autocomplete for dev query by name         //////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////
-
-
-export const autocompleteDistinctDuplicatedName = catchAsync(async(req: Request<{},{},{},DistinctNameQuery>, res, next) => {
-
-    const { value } = req.query
-
-    const waterbodies = await Waterbody.aggregate([{
-        $group: {
-            _id: '$name',
-            waterbodies: {
-                $push: '$_id'
-            }
-        }
-    },{
-        $match: {
-            $and: [
-              { $expr: { $gt: [{ $size: '$waterbodies'}, 1]}},
-              { _id: { $regex: `^${value}`, $options: 'i' } }
-            ]
-          }
-    }])
-
-    res.status(200).json(waterbodies.map(wb => wb._id))
-
-})
 
 

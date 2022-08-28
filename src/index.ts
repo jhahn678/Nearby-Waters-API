@@ -1,5 +1,4 @@
 import express, { Application } from 'express'
-import MongoDB from './config/mongo'
 import cors from 'cors'
 import routes from './routes'
 
@@ -7,7 +6,6 @@ const app: Application = express()
 const PORT = process.env.PORT || 3500
 
 require('dotenv').config()
-MongoDB()
 
 app.use(cors())
 app.use(express.json())
