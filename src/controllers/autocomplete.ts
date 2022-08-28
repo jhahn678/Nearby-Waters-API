@@ -32,14 +32,19 @@ export const autocompletePlaces = catchAsync(async (req: Request<{},{},{},Autoco
         if(validateCoords(coords)){
             const [lng, lat] = coords;
             const point = st.transform(st.setSRID(st.point(lng, lat), 4326), 3857)
-            query.select('*', 
+            query.select('*',
+                knex.raw('st_asgeojson(st_transform(geom, 4326))::json as geom'),
                 knex.raw("'GEOPLACE' as type"),
                 knex.raw('rank_result(geom <-> ?, weight, ?) as rank', [point, 300000])
             )
             query.where(st.dwithin('geom', point, 300000))
         }
     }else{
-        query.select('*', knex.raw('weight as rank'))
+        query.select('*', 
+            knex.raw('st_asgeojson(st_transform(geom, 4326))::json as geom'),
+            knex.raw("'GEOPLACE' as type"),
+            knex.raw('weight as rank')
+        )
     }
 
     query.orderByRaw('rank desc')
@@ -81,7 +86,12 @@ export const autocompleteWaterbodies = catchAsync(async(req: Request<{},{},{},Au
             query.where(st.dwithin('geom', point, 300000))
         }
     }else{
-        query.select('*', knex.raw('weight as rank'))
+        query.select(
+            'id', 'name', 'classification', 'admin_one', 
+            'admin_two', 'country', 'ccode', 'subregion', 'weight', 
+            knex.raw("'WATERBODY' as type"),
+            knex.raw('weight as rank')
+        )
     }
 
     query.orderByRaw('rank desc')
@@ -120,7 +130,7 @@ export const autocompleteAll = catchAsync(async (req: Request<{},{},{},Autocompl
             )
             geoplaces.select('*', 
                 knex.raw("'GEOPLACE' as type"),
-                knex.raw('st_asgeojson(st_transform(geom, 4326)) as geom'),
+                knex.raw('st_asgeojson(st_transform(geom, 4326))::json as geom'),
                 knex.raw('rank_result(geom <-> ?, weight, ?) as rank', [point, 300000])
             )
             geoplaces.where(st.dwithin('geom', point, 300000))
@@ -136,7 +146,7 @@ export const autocompleteAll = catchAsync(async (req: Request<{},{},{},Autocompl
         geoplaces.select('*', 
             knex.raw('weight as rank'))
             knex.raw("'GEOPLACE' as type"),
-            knex.raw('st_asgeojson(st_transform(geom, 4326)) as geom'
+            knex.raw('st_asgeojson(st_transform(geom, 4326))::json as geom'
         )
     }
 
