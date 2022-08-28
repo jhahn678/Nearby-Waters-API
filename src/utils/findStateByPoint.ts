@@ -1,9 +1,9 @@
 const stateGeometries = require('./states-boundaries.json')
 import * as turf from '@turf/turf'
-import { AdminOneAbbreviation } from '../types/enums/adminOne';
+import { AdminOneName } from '../types/AdminOne';
 
 
-export const findStateByPoint = (coords: [lng: number, lat:number]): AdminOneAbbreviation | null => {
+export const findStateByPoint = (coords: [lng: number, lat:number]): AdminOneName | null => {
     const point = turf.point(coords)
 
     for(let state of stateGeometries.features){
