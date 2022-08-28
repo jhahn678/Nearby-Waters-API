@@ -3,11 +3,9 @@ import knex, { st } from "../config/knex";
 import { validateCoords } from '../utils/validations/coordValidation'
 import { milesToMeters } from "../utils/conversions";
 import { Request } from "express";
-import { distanceWeightFunction } from "../utils/searchWeights";
 import { CoordinateError } from "../utils/errors/CoordinateError";
 import { RequestError } from "../utils/errors/RequestError";
 import { UnknownReferenceError } from "../utils/errors/UnknownReferenceError";
-import { GeoJSON } from 'geojson'
 import { QueryError } from "../utils/errors/QueryError";
 import { AccessPointCreationError } from '../utils/errors/AccessPointCreationError'
 import { validateAccessPointType } from "../utils/validations/accessPointValidations";
@@ -20,6 +18,7 @@ import { INewAccessPoint } from "../types/AccessPoint";
 
 interface WaterbodyQuery {
     id: number,
+    /** Returns associated geometries as a geojson geometry collection */
     geometries?: string | boolean
 }
 
@@ -28,18 +27,25 @@ export const getWaterbody = catchAsync(async (req: Request<{},{},{},WaterbodyQue
     const { id, geometries } = req.query;
     if(!id) throw new QueryError('ID_REQUIRED')
 
-    const waterbody = await knex('waterbodies').where({ id }).first()
-    if(!waterbody) throw new UnknownReferenceError('WATERBODY', [id])
+    const query = knex('waterbodies')
+        .select(
+            'id', 'name', 'classification', 'country', 'ccode',
+            'admin_one', 'admin_two', 'subregion', 'weight'
+        )
+        .where('id', id)
+        .first()
     
     if(geometries) {
-        const results = await knex('geometries').select('*')
-            .select({ geom: st.asGeoJSON(st.transform('geom', 4326)) })
-            .where('waterbody', id)
-
-        res.status(200).json({ ...waterbody, geometries: results })
-    }else{
-        res.status(200).json(waterbody)
+        query.select(knex.raw(
+            '(select st_asgeojson(st_collect(st_transform(geom, 4326))) ' + 
+            'from geometries where waterbody = ?) as geometries', 
+            [id]
+        ))
     }
+
+    const waterbody = await query;
+    if(!waterbody) throw new UnknownReferenceError('WATERBODY', [id])
+    res.status(200).json(waterbody)
 })
 
 
@@ -65,6 +71,7 @@ interface WaterbodiesQuery {
     /** subregion name -- only valid for US */
     subregion?: string
     /** Boolean value to include geometries or not @default false*/
+    /** Returns geometries as a geojson geometry collection */
     geometries: string | boolean,
     /**Comma seperated longitude, latitude */
     lnglat?: string,
