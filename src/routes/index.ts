@@ -3,7 +3,6 @@ import AutocompleteRoutes from '../routes/autocomplete'
 import AdminRoutes from '../routes/admin'
 import controllers from '../controllers'
 import { authorizeAdmin } from '../middleware/auth'
-import knex, { st } from '../config/knex'
 
 const router = Router()
 
