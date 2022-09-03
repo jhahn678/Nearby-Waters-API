@@ -9,8 +9,8 @@ export interface IGeoplace {
     fcode: string,
     country: string,
     ccode: string,
-    admin_one: AdminOneName,
-    admin_two: string,
+    admin_one: AdminOneName | null,
+    admin_two: string | null,
     weight: number,
     geom: Point
 }
