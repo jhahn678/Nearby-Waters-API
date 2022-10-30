@@ -3,3 +3,4 @@ node_modules/
 src/utils/import-geodata.js
 tsconfig.json
 nodemon.json
+.http

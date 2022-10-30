@@ -24,7 +24,7 @@ export const autocompletePlaces = catchAsync(async (req: Request<{},{},{},Autoco
 
     if(parsedValue.length > 1){
         const valid = validateAdminOne(adminOne);
-        if(valid) query.whereRaw('? = any(admin_one)', [valid])
+        if(valid) query.where('admin_one', valid)
     }
 
     if(lnglat && !adminOne && name.length < 8){
@@ -81,9 +81,9 @@ export const autocompleteWaterbodies = catchAsync(async(req: Request<{},{},{},Au
                 'id', 'name', 'classification', 'admin_one', 
                 'admin_two', 'country', 'ccode', 'subregion', 'weight', 
                 knex.raw("'WATERBODY' as type"),
-                knex.raw('rank_result(geom <-> ?, weight, ?) as rank', [point, 300000])
+                knex.raw('rank_result(simplified_geometries <-> ?, weight, ?) as rank', [point, 300000])
             )
-            query.where(st.dwithin('geom', point, 300000))
+            query.where(st.dwithin('simplified_geometries', point, 300000))
         }
     }else{
         query.select(

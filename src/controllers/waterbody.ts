@@ -22,7 +22,7 @@ interface WaterbodyQuery {
     geometries?: string | boolean
 }
 
-export const getWaterbody = catchAsync(async (req: Request<{},{},{},WaterbodyQuery>, res, next) => {
+export const getWaterbody = catchAsync(async (req: Request<{},{},{},WaterbodyQuery>, res) => {
 
     const { id, geometries } = req.query;
     if(!id) throw new QueryError('ID_REQUIRED')
@@ -48,9 +48,6 @@ export const getWaterbody = catchAsync(async (req: Request<{},{},{},WaterbodyQue
     res.status(200).json(waterbody)
 })
 
-
-type Sort = { rank: -1 } | { distanceFrom: 1 } 
-
 interface WaterbodiesQuery {
     /** case-insensitive value */
     value?: string
@@ -67,8 +64,6 @@ interface WaterbodiesQuery {
     /** two letter country code -- precedence over country*/
     ccode?: string
     /** country name */
-    country?: string,
-    /** subregion name -- only valid for US */
     subregion?: string
     /** Boolean value to include geometries or not @default false*/
     /** Returns geometries as a geojson geometry collection */
@@ -86,10 +81,10 @@ interface WaterbodiesQuery {
 }
 
 
-export const getWaterbodies = catchAsync(async(req: Request<{},{},{},WaterbodiesQuery>, res, next) => {
+export const getWaterbodies = catchAsync(async(req: Request<{},{},{},WaterbodiesQuery>, res) => {
     const { 
         value, classifications, admin_one, states, 
-        minWeight, maxWeight, ccode, country, subregion, lnglat,
+        minWeight, maxWeight, ccode, subregion, lnglat,
         geometries=false, within=50, sort='rank', page=1, limit=50
     } = req.query;
 
@@ -131,18 +126,11 @@ export const getWaterbodies = catchAsync(async(req: Request<{},{},{},Waterbodies
     }
 
     if(ccode){
-        const valid = validateCountry(ccode)
-        if(!valid) throw new QueryError("INVALID_COUNTRY", ccode)
-        query.where('ccode', valid)
-    }else if(country){
-        const valid = validateCountry(country)
-        if(!valid) throw new QueryError("INVALID_COUNTRY", country)
-        query.where('ccode', valid)
+        query.where('ccode', ccode)
     }
 
     if(subregion){
-        const valid = validateSubregion(subregion)
-        query.where('subregion', valid)
+        query.where('subregion', subregion)
     }
 
     if(lnglat){
@@ -216,7 +204,7 @@ interface MergeWaterbodies {
     children: number[]
 }
 
-export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbodies>, res, next) => {
+export const mergeWaterbodies = catchAsync(async(req: Request<{},{},MergeWaterbodies>, res) => {
     const { parent, children } = req.body;
     
     if(!parent) throw new RequestError(400, 'Parent waterbody _id is required')
@@ -291,7 +279,7 @@ interface GetDuplicatesQuery {
 }
 
 
-export const getWaterbodiesByName = catchAsync(async(req: Request<{},{},{},GetDuplicatesQuery>, res, next) => {
+export const getWaterbodiesByName = catchAsync(async(req: Request<{},{},{},GetDuplicatesQuery>, res) => {
     
     const { name, classification, admin_one } = req.query;
 
@@ -337,7 +325,7 @@ interface DeleteWaterbodyReqBody {
     id: number
 }
 
-export const deleteWaterbody = catchAsync(async(req: Request<{},{},DeleteWaterbodyReqBody>, res, next) => {
+export const deleteWaterbody = catchAsync(async(req: Request<{},{},DeleteWaterbodyReqBody>, res) => {
 
     const { id } = req.body;
     if(!id) throw new RequestError(400, 'Waterbody _id is required')
@@ -348,46 +336,12 @@ export const deleteWaterbody = catchAsync(async(req: Request<{},{},DeleteWaterbo
     res.status(204).json({ deleteCount: deleted })
 })
 
-
-
-// interface GetDistinctNames {
-//     index: string
-//     weight?: string
-//     state?: string
-//     admin_one?: string
-// }
-
-// export const getDistinctName = catchAsync(async(req: Request<{},{},{},GetDistinctNames>, res, next) => {
-//     const { state, weight, index } = req.query;
-//     let filters: FilterQuery<IWaterbody>[] = []
-//     let names: string[] = [];
-//     if(state) filters.push({ admin_one: state })
-//     if(weight) filters.push({ weight: parseFloat(weight)})
-//     if(filters.length > 0){
-//         names = await Waterbody.distinct('name', { $and: filters })
-//     }else{
-//         names = await Waterbody.distinct('name')
-//     }
-//     const x = parseInt(index);
-//     const nameSlice = names.slice(x, (x + 10))
-//     res.status(200).json({
-//         index: x,
-//         position: x + 1,
-//         total: names.length,
-//         next: x + 10 < names.length,
-//         values: nameSlice
-//     })
-// })
-
-
-
-
 interface NearestWaterbodyQuery {
     /** Comma seperated -- longitude, latitude */
     lnglat: string,
 }
 
-export const getNearestWaterbodies = catchAsync(async (req: Request<{},{},{},NearestWaterbodyQuery>, res, next) => {
+export const getNearestWaterbodies = catchAsync(async (req: Request<{},{},{},NearestWaterbodyQuery>, res) => {
 
     const { lnglat } = req.query;
     if(!lnglat) throw new QueryError('COORDS_REQUIRED')
@@ -407,11 +361,8 @@ export const getNearestWaterbodies = catchAsync(async (req: Request<{},{},{},Nea
         .orderByRaw('distance asc')
         .limit(3)
 
-
     res.status(200).json(waterbodies)
 })
-
-
 
 
 interface NewAccessPointReq {
@@ -424,8 +375,7 @@ interface NewAccessPointReq {
     coordinates: [Lng: number, Lat: number]
 }
 
-
-export const addAccessPoint = catchAsync(async(req: Request<{},{},NewAccessPointReq>, res, next) => {
+export const addAccessPoint = catchAsync(async(req: Request<{},{},NewAccessPointReq>, res) => {
     const { 
         name, 
         description, 

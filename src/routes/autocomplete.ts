@@ -7,5 +7,4 @@ router.get('/geoplaces', controllers.autocompletePlaces)
 router.get('/waterbodies', controllers.autocompleteWaterbodies)
 router.get('/waterbodies/distinct-name', controllers.autocompleteDistinctName)
 
-
 export default router;

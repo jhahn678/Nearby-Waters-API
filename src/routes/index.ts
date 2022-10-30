@@ -18,11 +18,6 @@ router.get('/geometry', controllers.getGeometry)
 router.get('/geometries', controllers.getGeometries)
 router.use('/admin', AdminRoutes)
 router.use('/autocomplete', AutocompleteRoutes)
-// router.get('/waterbody/names', controllers.getDistinctName)
-// router.post('/waterbody/access-point', controllers.addAccessPoint)
-// router.get('/dev', async (req, res) => {
-    
-// })
 
 export default router;
     
